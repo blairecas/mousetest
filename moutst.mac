@@ -263,6 +263,8 @@ PPRele:	movb	#2, PPCmd	; 2 - release memory
 ; //////////////////////////////////////////////////////////////////////////////
 
 PPUSta:	mtps	#200
+	clr	R0
+	call	@7132(R0)		; stop FD
 
 	; replace keyboard interrupt
 	mov	PC, R0
@@ -345,27 +347,21 @@ PpuMain:
 
 10$:	clr	MouseMoved
 	mov	@#177400, R0
-	; coords are [..YYYYYY..XXXXXX] signed 6-bit
+	; coords are [YYYYYYY.XXXXXXX.] signed 7-bit
 	
 	mov	R0, R1
-	bic	#^B1111111111000000, R1
+	bic	#^B1111111100000001, R1
 	beq	20$
 	inc	MouseMoved
-	asl	R1
-	asl	R1
 	movb	R1, R1
-	asr	R1
 	asr	R1
 
 20$:	mov	R0, R2
 	swab	R2
-	bic	#^B1111111111000000, R2
+	bic	#^B1111111100000001, R2
 	beq	30$
 	inc	MouseMoved
-	asl	R2
-	asl	R2
 	movb	R2, R2
-	asr	R2
 	asr	R2
 
 30$:	tst	MouseMoved			; any movement?
