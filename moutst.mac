@@ -1,0 +1,545 @@
+	.mcall	.print .exit
+	.enabl	LC
+	.list	MEB
+	.asect
+	.=1000
+
+SCRWID = 80.
+
+Start:
+	; start PPU code
+	inc	PPComm
+	mov	#PPUSta, R4		; run PPU code
+	mov	#<PPUEnd-PPUSta/2>, R5
+	call	PPURun
+	; clear planes 1,2
+	mov	#176640, R4
+	mov	#176642, R5
+	mov	#100000, (R4)
+	mov	#SCRWID*288., R3
+	clr	(R5)
+	inc	(R4)
+	sob	R3, .-4
+	; initial printing vaddr
+	mov	#SCRWID*4+100000+1, PrintAddr
+	call	PrintLog
+
+10$:	; PPU asks for exit?
+	tst	PPComm
+	beq	CpuExit
+	; PPU asks for printing?
+	cmp	PPComm, #2
+	bne	10$
+	; print register then
+	call	XorCurrent
+	add	#SCRWID*10., PrintAddr
+	cmp	PrintAddr, #SCRWID*280.+100000
+	blo	20$
+	mov	#SCRWID*4+100000+1, PrintAddr
+20$:	call	PrintLog
+	; set 'printing ends' flag
+	mov	#3, PPcomm
+	br	10$
+
+CpuExit:
+	call	PPRele			; release PPU memory
+	.exit
+
+XorCurrent:
+	mov	#176640, R4
+	mov	#176642, R5
+	mov	PrintAddr, (R4)
+	sub	#SCRWID*2, (R4)
+	mov	#13., R3
+	mov	#377, R0
+10$:	xor	R0, (R5)
+	inc	(R4)
+	sob	R3, 10$
+	mov	PrintAddr, (R4)
+	add	#SCRWID*6, (R4)
+	mov	#13., R3
+20$:	xor	R0, (R5)
+	inc	(R4)
+	sob	R3, 20$
+	return
+
+PrintLog:
+	mov	Reg177400, R0
+	mov	PrintAddr, R1
+	call	PrintBinaryWord
+	mov	Reg177400, R0
+	mov	PrintAddr, R1
+	add	#10., R1
+	call	PrintOctalWord
+	call	XorCurrent
+	return
+
+
+PPComm:		.word	0	; PPU command
+Reg177400:	.word	0
+PrintAddr:	.word	0
+
+Msg000:		.asciz	<12>"Mouse test on (ppu) 177400. Space - center mouse, other keys - exit."
+Msg010:		.asciz	<12>"ERR: PPU allocate memory failed"<12>
+		.even
+
+; //////////////////////////////////////////////////////////////////////////////
+; // Printing
+; //////////////////////////////////////////////////////////////////////////////
+
+; 4x5 numbers (aligned by 8 bytes)
+SprNumbers45:
+	.BYTE	7,5,5,5,7,0,0,0, 2,2,2,2,2,0,0,0
+	.BYTE	7,4,7,1,7,0,0,0, 7,4,6,4,7,0,0,0
+	.BYTE	5,5,7,4,4,0,0,0, 7,1,7,4,7,0,0,0
+	.BYTE	7,1,7,5,7,0,0,0, 7,4,4,4,4,0,0,0
+	.BYTE	7,5,7,5,7,0,0,0, 7,5,7,4,7,0,0,0
+	; shifted by 4 bit
+	.BYTE	160,120,120,120,160,0,0,0, 040,040,040,040,040,0,0,0
+	.BYTE	160,100,160,020,160,0,0,0, 160,100,140,100,160,0,0,0
+	.BYTE	120,120,160,100,100,0,0,0, 160,020,160,100,160,0,0,0
+	.BYTE	160,020,160,120,160,0,0,0, 160,100,100,100,100,0,0,0
+	.BYTE	160,120,160,120,160,0,0,0, 160,120,160,100,160,0,0,0
+	
+; print binary word (4x5 font), R0-word, R1-vram addr
+PrintBinaryWord:
+	mov	#176640, R4
+	mov	#176642, R5
+	mov	R1, (R4)
+	mov	#SCRWID, R2
+	mov	#8., R3
+20$:	; first half of 8-pixels
+	mov	#SprNumbers45, R1	; sprite 0
+	asl	R0
+	bcc	30$
+	add	#8., R1			; sprite 1
+30$:	movb	(R1)+, (R5)		; using only plane 1
+	add	R2, (R4)
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	movb	(R1)+, (R5)
+	sub	#SCRWID*4, (R4)		; rewind vaddr
+	; second half - shifted sprites and BIS
+	mov	#<SprNumbers45+80.>, R1
+	asl	R0
+	bcc	40$
+	add	#8., R1
+40$:	bisb	(R1)+, (R5)
+	add	R2, (R4)
+	bisb	(R1)+, (R5)
+	add	R2, (R4)
+	bisb	(R1)+, (R5)
+	add	R2, (R4)
+	bisb	(R1)+, (R5)
+	add	R2, (R4)
+	bisb	(R1)+, (R5)
+	sub	#SCRWID*4-1, (R4)	; .. and advance vaddr
+	sob	R3, 20$
+	return	
+ 
+; print octal word (4x5 font), R0 - word, R1-vram addr
+PrintOctalWord:
+	mov	#176640, R4
+	mov	#176642, R5
+	mov	R1, (R4)
+	mov	#SCRWID, R2
+	mov	#3., R3
+	; 1st bit
+	clr	R1
+	br	22$
+20$:	; first half of 8-pixels
+	clr	R1
+	asl	R0
+	rol	R1
+	asl	R0
+	rol	R1
+22$:	asl	R0
+	rol	R1	
+	; get normal spr addr
+	asl	R1
+	asl	R1
+	asl	R1
+	add	#SprNumbers45, R1
+	; put bits
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	movb	(R1)+, (R5)
+	sub	#SCRWID*4, (R4)
+	; second half - shifted sprites and BIS
+	clr	R1
+	asl	R0
+	rol	R1
+	asl	R0
+	rol	R1
+	asl	R0
+	rol	R1
+	; get shifted spr adr
+	asl	R1
+	asl	R1
+	asl	R1
+	add	#<SprNumbers45+80.>, R1
+	; put bits
+	bisb	(R1)+, (R5)
+	add	R2, (R4)
+	bisb	(R1)+, (R5)
+	add	R2, (R4)
+	bisb	(R1)+, (R5)
+	add	R2, (R4)
+	bisb	(R1)+, (R5)
+	add	R2, (R4)
+	bisb	(R1)+, (R5)
+	sub	#SCRWID*4-1, (R4)		; advance vaddr to next byte
+	sob	R3, 20$
+	return	 
+
+; //////////////////////////////////////////////////////////////////////////////
+; // CPU -> PPU exchange	
+; //////////////////////////////////////////////////////////////////////////////
+
+; PPU message
+;
+PPmsg:	.word	PPArr	; address of beginning of array
+        .word	177777	; end of transmission
+
+; PPU data exchange array
+;
+PPArr:	.byte	0	; return value (0 - OK)
+PPCmd:	.byte	0	; command
+	.word	32	; device type (32 - PPU mem)
+PPApp:	.word	0	; address for PPU
+PPAcp:	.word	0	; address for CPU
+PPLen:	.word	0	; length in words
+
+; send command to PPU with exch array
+PPSen:	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	#PPMsg, R0	; array address
+	mov	#5, R1		; bytes to send+1 (sending from @#PP_MSG)
+	br	1$
+2$:	movb	(R0)+, @#176676
+1$:	tstb	@#176674	; test if we are ready to send
+	bpl	1$		; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 2$
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	return
+
+; send and start PPU code
+; R4 - start addr in CPU
+; R5 - length / 2
+PPURun:	movb	#1, PPCmd	; 1 - allocate memory
+	mov	R5, PPLen
+	call	PPSen
+	tstb	PPArr		; test if allocate success
+	beq	1$		; 0 - OK
+	.print	#Msg010
+	.exit			; fatal error - out of memory in PPU
+1$:	movb	#20, PPCmd	; 20 - write to PPU mem
+	mov	R5, PPLen
+	mov 	R4, PPAcp
+	call	PPSen
+	movb	#30, PPCmd	; 30 - run
+	call	PPSen
+	return
+
+; release PPU memory
+PPRele:	movb	#2, PPCmd	; 2 - release memory
+	call	PPSen
+	return
+
+
+; //////////////////////////////////////////////////////////////////////////////	
+; // PPU
+; //////////////////////////////////////////////////////////////////////////////
+
+PPUSta:	mtps	#200
+
+	; replace keyboard interrupt
+	mov	PC, R0
+	add	#IntKbd-., R0
+	mov	@#300, Bkw300
+	mov	R0, @#300
+
+	; clear screen plane 0
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	#100000, (R4)
+	mov	#SCRWID*288., R3	
+	clr	(R5)
+	inc	(R4)
+	sob	R3, .-4
+
+	; set new lines table
+	mov	PC, R0
+	add	#PPLIN1-., R0
+	add	#10, R0			; align addr with 8. bytes
+	bic	#7, R0
+	mov	R0, R2			; save addr and use later
+	; 1st element - set palette (YRGB YRGB YRGB YRGB)
+	;                           (0011 0010 0001 0000)
+	;                           (0111 0110 0101 0100)
+	mov	#^B1111110011111000, (R0)+
+	mov	#^B1111111011111010, (R0)+
+	clr	(R0)+			; vaddr is not used here
+	mov	R0, (R0)		; next element addr
+	add	#2, (R0)
+	bis	#2, (R0)+		; #2 = 010 - next element is scale&cursor
+	; 2nd line - set scale, lumi and cursor
+	mov	#^B0000000000010000, (R0)+ ; no cursor
+	mov	#^B0000000000000111, (R0)+ ; 640x288, max luminance (..00111-640, ..10111 - 320)
+	clr	(R0)+			; vaddr is not used here
+	mov	R0, (R0)
+	add	#2, (R0)+		; next element is 2-words
+	; 16 not used lines
+	mov	#16., R3
+10$:	clr	(R0)+
+	mov	R0, (R0)
+	add	#2, (R0)+
+	sob	R3, 10$
+	; next 288. 'main' lines
+	mov	#100000, R1
+	mov	#288., R3
+30$:	mov	R1, (R0)+
+	mov	R0, (R0)
+	add	#2, (R0)+
+	add	#SCRWID, R1
+	sob	R3, 30$
+	; set new lines table
+	mov	@#270, BKW270		; backup old table
+	mov	@#272, BKW272
+	clr	@#270
+	bis	#6, R2			; first line is palette
+	mov	R2, @#272		; saved addr
+
+	; now all is set, time for main loop
+	mtps	#0
+	call	XorMouse
+
+; /////////////////////////////////////////////////////
+
+PpuMain:
+	; need to exit?
+	tst	AnyKey
+	beq	10$
+
+	; exit PPU
+	mtps	#200
+	call	XorMouse
+	mov	Bkw300, @#300		; restore some regs
+	mov	Bkw270, @#270
+	mov	Bkw272, @#272
+	mov	#PPComm/2, @#177010	; exit flag for CPU
+	clr	@#177014	
+	mtps	#0
+	return
+
+10$:	clr	MouseMoved
+	mov	@#177400, R0
+	; coords are [..YYYYYY..XXXXXX] signed 6-bit
+	
+	mov	R0, R1
+	bic	#^B1111111111000000, R1
+	beq	20$
+	inc	MouseMoved
+	asl	R1
+	asl	R1
+	movb	R1, R1
+	asr	R1
+	asr	R1
+
+20$:	mov	R0, R2
+	swab	R2
+	bic	#^B1111111111000000, R2
+	beq	30$
+	inc	MouseMoved
+	asl	R2
+	asl	R2
+	movb	R2, R2
+	asr	R2
+	asr	R2
+
+30$:	tst	MouseMoved			; any movement?
+	beq	PpuMain				; no - back to main
+
+	mov	#Reg177400/2, @#177010		; save register values in CPU
+	mov	R0, @#177014
+
+	mov	#PPcomm/2, @#177010		; ask CPU to print value 
+	mov	#2, @#177014
+40$:	mov	#PPcomm/2, @#177010		; wait until CPU ends printing
+	cmp	#3, @#177014
+	bne	40$
+
+	; new mouse coords (Y is inverted)
+	add	R1, MouseNewX
+	sub	R2, MouseNewY
+
+	; check for out of screen
+	tst	MouseNewX
+	bge	52$
+	clr	MouseNewX
+	br	54$
+52$:	cmp	MouseNewX, #640.-8.
+	ble	54$
+	mov	#640.-8., MouseNewX
+54$:	tst	MouseNewY
+	bge	56$
+	clr	MouseNewY
+	br	58$
+56$:	cmp	MouseNewY, #280.
+	ble	58$
+	mov	#280., MouseNewY
+58$:
+	; redraw mouse and set new coords
+	call	XorMouse
+	mov	MouseNewX, MouseX
+	mov	MouseNewY, MouseY
+	call	XorMouse
+
+	jmp	PpuMain
+
+; ////////////////////////////////////////////////////////////////////
+
+; keyboard interrupt
+IntKbd:	mov	R0, -(SP)
+	mov	@#177702, R0
+	bit	#^B10000000, R0		; key pressed?
+	bne	20$
+	cmp	R0, #^B01001011		; is it 'space'?
+	bne	10$
+	mov	#320., MouseNewX
+	mov	#140., MouseNewY
+	inc	MouseMoved
+	br	20$
+10$:	inc	Anykey
+20$:	mov	(SP)+, R0
+	rti
+
+; xor mouse sprite at MouseX MouseY
+XorMouse:
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	MouseY, R1
+	mul	#SCRWID, R1
+	mov	MouseX, R0
+	mov	R0, R3				; preshifted sprite addition
+	bic	#^B1111111111111000, R3		; 8-pix
+	ash	#4., R3				; * 16 bytes (sprite size)
+	asr	R0
+	asr	R0
+	asr	R0
+	add	R1, R0
+	add	#100000, R0			; R0 = mouse vaddr
+	mov	R0, (R4)
+	mov	PC, R0
+	add	#MouSpr-., R0
+	add	R3, R0				; adjust to preshifted sprite
+	mov	#SCRWID-1, R1			; vaddr addition
+	.rept	8.
+	mov	(R0)+, R2
+	xor	R2, (R5)
+	inc	(R4)
+	swab	R2
+	xor	R2, (R5)
+	add	R1, (R4)
+	.endr	
+	return
+
+Anykey:		.word	0
+Bkw300:		.word	0
+Bkw270:		.word	0
+Bkw272:		.word	0
+MouseX:		.word	320.
+MouseY:		.word	140.
+MouseNewX:	.word	320.
+MouseNewY:	.word	140.
+MouseMoved:	.word	0
+PPLin1:		.blkw	1200
+
+; preshifted mouse sprites
+MouSpr:	;0
+	.word	^B0000000000000001
+	.word	^B0000000000000011
+	.word	^B0000000000000111
+	.word	^B0000000000001111
+	.word	^B0000000000011111
+	.word	^B0000000000111111
+	.word	^B0000000001111111
+	.word	^B0000000000001111
+	;1
+	.word	^B0000000000000010
+	.word	^B0000000000000110
+	.word	^B0000000000001110
+	.word	^B0000000000011110
+	.word	^B0000000000111110
+	.word	^B0000000001111110
+	.word	^B0000000011111110
+	.word	^B0000000000011110
+	;2
+	.word	^B0000000000000100
+	.word	^B0000000000001100
+	.word	^B0000000000011100
+	.word	^B0000000000111100
+	.word	^B0000000001111100
+	.word	^B0000000011111100
+	.word	^B0000000111111100
+	.word	^B0000000000111100
+	;3
+	.word	^B0000000000001000
+	.word	^B0000000000011000
+	.word	^B0000000000111000
+	.word	^B0000000001111000
+	.word	^B0000000011111000
+	.word	^B0000000111111000
+	.word	^B0000001111111000
+	.word	^B0000000001111000
+	;4
+	.word	^B0000000000010000
+	.word	^B0000000000110000
+	.word	^B0000000001110000
+	.word	^B0000000011110000
+	.word	^B0000000111110000
+	.word	^B0000001111110000
+	.word	^B0000011111110000
+	.word	^B0000000011110000
+	;5
+	.word	^B0000000000100000
+	.word	^B0000000001100000
+	.word	^B0000000011100000
+	.word	^B0000000111100000
+	.word	^B0000001111100000
+	.word	^B0000011111100000
+	.word	^B0000111111100000
+	.word	^B0000000111100000
+	;6
+	.word	^B0000000001000000
+	.word	^B0000000011000000
+	.word	^B0000000111000000
+	.word	^B0000001111000000
+	.word	^B0000011111000000
+	.word	^B0000111111000000
+	.word	^B0001111111000000
+	.word	^B0000001111000000
+	;7
+	.word	^B0000000010000000
+	.word	^B0000000110000000
+	.word	^B0000001110000000
+	.word	^B0000011110000000
+	.word	^B0000111110000000
+	.word	^B0001111110000000
+	.word	^B0011111110000000
+	.word	^B0000011110000000
+
+PPUEnd:
+
+	.end	Start
