@@ -13,6 +13,43 @@ Start:
 	mov	#<PPUEnd-PPUSta/2>, R5
 	call	PPURun
 	; clear planes 1,2
+	call	ClearPlanes12
+	; initial printing vaddr
+	mov	#SCRWID*4+100000+1, PrintAddr
+	call	PrintLog
+
+10$:	; PPU asks for exit?
+	tst	PPComm
+	bne	20$
+	; release PPU memory and exit
+	call	PPRele
+	.exit
+
+20$:	; PPU asks for printing?
+	cmp	PPComm, #2
+	bne	40$
+	; print register then
+	call	XorCurrent
+	add	#SCRWID*9., PrintAddr
+	cmp	PrintAddr, #SCRWID*280.+100000
+	blo	30$
+	mov	#SCRWID*4+100000+1, PrintAddr
+30$:	call	PrintLog
+	; set 'printing ends' flag
+	mov	#3, PPcomm
+
+40$:	; have double click?
+	tst	CpuDblClick
+	beq	50$
+	clr	CpuDblClick
+	call	ClearPlanes12
+	call	XorCurrent
+
+50$:	; TODO: what else?
+	br	10$
+
+
+ClearPlanes12:
 	mov	#176640, R4
 	mov	#176642, R5
 	mov	#100000, (R4)
@@ -20,64 +57,77 @@ Start:
 	clr	(R5)
 	inc	(R4)
 	sob	R3, .-4
-	; initial printing vaddr
-	mov	#SCRWID*4+100000+1, PrintAddr
-	call	PrintLog
-
-10$:	; PPU asks for exit?
-	tst	PPComm
-	beq	CpuExit
-	; PPU asks for printing?
-	cmp	PPComm, #2
-	bne	10$
-	; print register then
-	call	XorCurrent
-	add	#SCRWID*10., PrintAddr
-	cmp	PrintAddr, #SCRWID*280.+100000
-	blo	20$
-	mov	#SCRWID*4+100000+1, PrintAddr
-20$:	call	PrintLog
-	; set 'printing ends' flag
-	mov	#3, PPcomm
-	br	10$
-
-CpuExit:
-	call	PPRele			; release PPU memory
-	.exit
+	return
 
 XorCurrent:
-	mov	#176640, R4
-	mov	#176642, R5
+	; R4, R5 must be already set to vaddr/vdata regs
 	mov	PrintAddr, (R4)
 	sub	#SCRWID*2, (R4)
-	mov	#13., R3
 	mov	#377, R0
-10$:	xor	R0, (R5)
+	.rept	7.
+	xor	R0, (R5)
 	inc	(R4)
-	sob	R3, 10$
-	mov	PrintAddr, (R4)
-	add	#SCRWID*6, (R4)
-	mov	#13., R3
-20$:	xor	R0, (R5)
+	.endr
+	xor	R0, (R5)
+	add	#SCRWID*8.-7., (R4)
+	.rept	7.
+	xor	R0, (R5)
 	inc	(R4)
-	sob	R3, 20$
+	.endr
+	xor	R0, (R5)
 	return
 
 PrintLog:
 	mov	Reg177400, R0
 	mov	PrintAddr, R1
 	call	PrintBinaryWord
-	mov	Reg177400, R0
-	mov	PrintAddr, R1
-	add	#10., R1
-	call	PrintOctalWord
+	;mov	Reg177400, R0
+	;mov	PrintAddr, R1
+	;add	#10., R1
+	;call	PrintOctalWord
 	call	XorCurrent
-	return
+	; depends on mouse keys - draw kub
+	; R4, R5 already set earlier
+	mov	CpuMouseRL, R2
+	beq	99$
+	mov	CpuMouseY, R1
+	mul	#SCRWID, R1
+	add	#100000, R1
+	mov	CpuMouseX, R0
+	asr	R0
+	rol	R2
+	asr	R0
+	asr	R0
+	add	R0, R1
+	mov	R1, (R4)
+	asl	R2
+	mov	SprKub(R2), R0
+	mov	#SCRWID, R1
+	.rept	3
+	bis	R0, (R5)
+	add	R1, (R4)
+	.endr
+	bis	R0, (R5)
+99$:	return
+
+SprKub:
+	.word	0, 0
+	.word	^B0000000000001111
+	.word	^B0000000011110000
+	.word	^B0000111100000000
+	.word	^B1111000000000000
+	.word	^B0000111100001111
+	.word	^B1111000011110000
 
 
 PPComm:		.word	0	; PPU command
 Reg177400:	.word	0
 PrintAddr:	.word	0
+
+CpuMouseX:	.word	0
+CpuMouseY:	.word	0
+CpuMouseRL:	.word	0
+CpuDblClick:	.word	0
 
 Msg000:		.asciz	<12>"Mouse test on (ppu) 177400. Space - center mouse, other keys - exit."
 Msg010:		.asciz	<12>"ERR: PPU allocate memory failed"<12>
@@ -267,10 +317,16 @@ PPUSta:	mtps	#200
 	call	@7132(R0)		; stop FD
 
 	; replace keyboard interrupt
+	mov	@#300, Bkw300
 	mov	PC, R0
 	add	#IntKbd-., R0
-	mov	@#300, Bkw300
 	mov	R0, @#300
+
+	; replace vsync interrupt
+	mov	@#100, Bkw100
+	mov	PC, R0
+	add	#VsyncInt-., R0
+	mov	R0, @#100
 
 	; clear screen plane 0
 	mov	#177010, R4
@@ -337,7 +393,8 @@ PpuMain:
 	; exit PPU
 	mtps	#200
 	call	XorMouse
-	mov	Bkw300, @#300		; restore some regs
+	mov	Bkw100, @#100		; restore ints and vlines
+	mov	Bkw300, @#300
 	mov	Bkw270, @#270
 	mov	Bkw272, @#272
 	mov	#PPComm/2, @#177010	; exit flag for CPU
@@ -345,66 +402,91 @@ PpuMain:
 	mtps	#0
 	return
 
-10$:	clr	MouseMoved
-	mov	@#177400, R0
-	; coords are [YYYYYYY.XXXXXXX.] signed 7-bit
-	
-	mov	R0, R1
-	bic	#^B1111111100000001, R1
-	beq	20$
-	inc	MouseMoved
-	movb	R1, R1
+10$:	mov	@#177400, R0
+	; [YYYYYYYLXXXXXXXR] signed 7-bit
+	mov	MouseRL, R3		; R3 - olr RL buttons
+	clr	R2			; R2 - RL buttons
+	; X and RMB
+	movb	R0, R1
 	asr	R1
+	rol	R2
+	add	R1, MouseX
+	; Y and LMB
+	swab	R0
+	movb	R0, R1
+	asr	R1
+	rol	R2
+	sub	R1, MouseY		; Y is inverted
+	mov	R2, MouseRL
 
-20$:	mov	R0, R2
-	swab	R2
-	bic	#^B1111111100000001, R2
-	beq	30$
-	inc	MouseMoved
-	movb	R2, R2
-	asr	R2
-
-30$:	tst	MouseMoved			; any movement?
-	beq	PpuMain				; no - back to main
-
-	mov	#Reg177400/2, @#177010		; save register values in CPU
-	mov	R0, @#177014
-
-	mov	#PPcomm/2, @#177010		; ask CPU to print value 
-	mov	#2, @#177014
-40$:	mov	#PPcomm/2, @#177010		; wait until CPU ends printing
-	cmp	#3, @#177014
+	; check for double-click
+	asl	R3
+	bis	R2, R3
+	dec	R3
 	bne	40$
+	mov	DblClickTimer, R3
+	clr	DblClickTimer
+	cmp	R3, #10.
+	bhi	40$
+	mov	#CpuDblClick/2, @#177010
+	inc	@#177014
 
-	; new mouse coords (Y is inverted)
-	add	R1, MouseNewX
-	sub	R2, MouseNewY
+40$:	; if DX DY values are zero - cycle it
+	bic	#^B0000000100000001, R0
+	beq	PpuMain
+
+	mov	#177010, R4
+	mov	#177014, R5
+
+	; store register in CPU
+	swab	R0
+	mov	#Reg177400/2, (R4)
+	mov	R0, (R5)
 
 	; check for out of screen
-	tst	MouseNewX
+	tst	MouseX
 	bge	52$
-	clr	MouseNewX
+	clr	MouseX
 	br	54$
-52$:	cmp	MouseNewX, #640.-8.
+52$:	cmp	MouseX, #640.-8.
 	ble	54$
-	mov	#640.-8., MouseNewX
-54$:	tst	MouseNewY
+	mov	#640.-8., MouseX
+54$:	tst	MouseY
 	bge	56$
-	clr	MouseNewY
+	clr	MouseY
 	br	58$
-56$:	cmp	MouseNewY, #280.
+56$:	cmp	MouseY, #280.
 	ble	58$
-	mov	#280., MouseNewY
-58$:
-	; redraw mouse and set new coords
+	mov	#280., MouseY
+58$:	; store coords and RL in CPU
+	mov	#CpuMouseX/2, (R4)
+	mov	MouseX, (R5)
+	mov	#CpuMouseY/2, (R4)
+	mov	MouseY, (R5)
+	mov	#CpuMouseRL/2, (R4)
+	mov	MouseRL, (R5)
+
+	; ask for print log & draw
+	mov	#PPcomm/2, (R4)
+	mov	#2, (R5)
+60$:	mov	#PPcomm/2, (R4)
+	cmp	#3, (R5)
+	bne	60$
+
+	; redraw mouse
 	call	XorMouse
-	mov	MouseNewX, MouseX
-	mov	MouseNewY, MouseY
+	mov	MouseX, MouseOldX
+	mov	MouseY, MouseOldY
 	call	XorMouse
 
 	jmp	PpuMain
 
 ; ////////////////////////////////////////////////////////////////////
+
+; vsync interrupt
+VsyncInt:
+	inc	DblClickTimer
+	rti
 
 ; keyboard interrupt
 IntKbd:	mov	R0, -(SP)
@@ -413,9 +495,8 @@ IntKbd:	mov	R0, -(SP)
 	bne	20$
 	cmp	R0, #^B01001011		; is it 'space'?
 	bne	10$
-	mov	#320., MouseNewX
-	mov	#140., MouseNewY
-	inc	MouseMoved
+	mov	#320., MouseX
+	mov	#140., MouseY
 	br	20$
 10$:	inc	Anykey
 20$:	mov	(SP)+, R0
@@ -423,11 +504,11 @@ IntKbd:	mov	R0, -(SP)
 
 ; xor mouse sprite at MouseX MouseY
 XorMouse:
-	mov	#177010, R4
+	; R4 was set earlier
 	mov	#177012, R5
-	mov	MouseY, R1
+	mov	MouseOldY, R1
 	mul	#SCRWID, R1
-	mov	MouseX, R0
+	mov	MouseOldX, R0
 	mov	R0, R3				; preshifted sprite addition
 	bic	#^B1111111111111000, R3		; 8-pix
 	ash	#4., R3				; * 16 bytes (sprite size)
@@ -451,15 +532,21 @@ XorMouse:
 	.endr	
 	return
 
+DblClickTimer:	.word	0
 Anykey:		.word	0
+
+Bkw100:		.word	0
 Bkw300:		.word	0
 Bkw270:		.word	0
 Bkw272:		.word	0
+
 MouseX:		.word	320.
 MouseY:		.word	140.
-MouseNewX:	.word	320.
-MouseNewY:	.word	140.
-MouseMoved:	.word	0
+MouseRL:	.word	0
+
+MouseOldX:	.word	320.
+MouseOldY:	.word	140.
+
 PPLin1:		.blkw	1200
 
 ; preshifted mouse sprites
