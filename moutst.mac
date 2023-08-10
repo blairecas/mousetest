@@ -386,6 +386,11 @@ PPUSta:	mtps	#200
 ; /////////////////////////////////////////////////////
 
 PpuMain:
+	; wait for vsync
+	tst	VsyncCount
+	beq	PpuMain
+	clr	VsyncCount
+
 	; need to exit?
 	tst	AnyKey
 	beq	10$
@@ -404,7 +409,7 @@ PpuMain:
 
 10$:	mov	@#177400, R0
 	; [YYYYYYYLXXXXXXXR] signed 7-bit
-	mov	MouseRL, R3		; R3 - olr RL buttons
+	mov	MouseRL, R3		; R3 - old RL buttons
 	clr	R2			; R2 - RL buttons
 	; X and RMB
 	movb	R0, R1
@@ -426,7 +431,7 @@ PpuMain:
 	bne	40$
 	mov	DblClickTimer, R3
 	clr	DblClickTimer
-	cmp	R3, #10.
+	cmp	R3, #15.
 	bhi	40$
 	mov	#CpuDblClick/2, @#177010
 	inc	@#177014
@@ -485,6 +490,7 @@ PpuMain:
 
 ; vsync interrupt
 VsyncInt:
+	inc	VsyncCount
 	inc	DblClickTimer
 	rti
 
@@ -532,6 +538,8 @@ XorMouse:
 	.endr	
 	return
 
+
+VsyncCount:	.word	0
 DblClickTimer:	.word	0
 Anykey:		.word	0
 
