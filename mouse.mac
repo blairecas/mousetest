@@ -1,0 +1,533 @@
+	.mcall	.print .exit
+	.enabl	LC
+	.list	MEB
+	.asect
+	.=1000
+
+; base addr in CPU for mouse CPU <-> PPU
+BASECTRL = 14
+; answers from PPU
+COMM_OK	= 1		; ok
+COMM_ALREADY = 2	; no mouse
+COMM_NOMOUSE = 3	; already running
+
+; /////////////////////////////////////////////////////////////////////////////
+
+Start:	; start PPU code
+	mov	#PPUSta, R4		; run PPU code
+	mov	#<PPUEnd-PPUSta/2>, R5
+	call	PPURun
+	; check PPU answer for mouse presents on 177400
+	clr	R0	
+10$:	tst	PpuComm			; it's for delay a bit
+	tst	PpuComm
+	tst	PpuComm
+	tst	PpuComm
+	bne	20$
+	inc	R0
+	bpl	10$
+	; no answer from PPU - exiting
+	call	PPRele
+	.print	#MsgNoPpuAnswer
+	.exit
+	; print message (maybe release PPU memory) and exit
+20$:	cmp	PpuComm, #1	; ok
+	bne	30$
+	mov	#MsgInfo, R0
+	br	90$
+30$:	cmp	PpuComm, #2	; port is 'trapped' - no mouse hardware
+	bne	40$
+	call	PPRele
+	mov	#MsgNoMouse, R0
+	br	90$
+40$:	cmp	PpuComm, #3	; already running
+	call	PPRele
+	mov	#MsgAlready, R0
+90$:	.print
+	.exit
+
+PpuComm:	.word	0	; PPU command
+MsgPpuNoMemory:	.asciz	"Unable to allocate memory in PPU"
+MsgNoPpuAnswer:	.asciz	"No answer from PPU - strange.. exiting"
+MsgAlready:	.asciz	"Already running in PPU"
+MsgNoMouse:	.asciz	"No mouse hardware detected on PPU 177400"
+MsgInfo:	.ascii	"Mouse was set in PPU. Addrs in CPU are:"<12><15>
+		.ascii	"@#14: X-coord (0..630.)"<12><15>
+		.ascii	"@#16: Y-coord (0..280.)"<12><15>
+		.ascii	"@#20: Buttons [00000DRL 00000DRL], D-double click"<12><15>
+		.asciz	"@#22: Control (W) 1 - cursor OFF, 2 - cursor ON"
+		.even
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // CPU -> PPU exchange	
+; //////////////////////////////////////////////////////////////////////////////
+
+; PPU message
+;
+PPmsg:	.word	PPArr	; address of beginning of array
+        .word	177777	; end of transmission
+
+; PPU data exchange array
+;
+PPArr:	.byte	0	; return value (0 - OK)
+PPCmd:	.byte	0	; command
+	.word	32	; device type (32 - PPU mem)
+PPApp:	.word	0	; address for PPU
+PPAcp:	.word	0	; address for CPU
+PPLen:	.word	0	; length in words
+
+; send command to PPU with exch array
+PPSen:	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	#PPMsg, R0	; array address
+	mov	#5, R1		; bytes to send+1 (sending from @#PP_MSG)
+	br	1$
+2$:	movb	(R0)+, @#176676
+1$:	tstb	@#176674	; test if we are ready to send
+	bpl	1$		; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 2$
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	return
+
+; send and start PPU code
+; R4 - start addr in CPU
+; R5 - length / 2
+PPURun:	movb	#1, PPCmd	; 1 - allocate memory
+	mov	R5, PPLen
+	call	PPSen
+	tstb	PPArr		; test if allocate success
+	beq	1$		; 0 - OK
+	.print	#MsgPpuNoMemory
+	.exit			; fatal error - out of memory in PPU
+1$:	movb	#20, PPCmd	; 20 - write to PPU mem
+	mov	R5, PPLen
+	mov 	R4, PPAcp
+	call	PPSen
+	movb	#30, PPCmd	; 30 - run
+	call	PPSen
+	return
+
+; release PPU memory
+PPRele:	movb	#2, PPCmd	; 2 - release memory
+	call	PPSen
+	return
+
+
+; //////////////////////////////////////////////////////////////////////////////	
+; // PPU
+; //////////////////////////////////////////////////////////////////////////////
+
+PPUSta:	mtps	#200
+
+	; check for presence at 50Hz interrupt
+	mov	@#100, R0
+	sub	#10., R0
+	mov	PC, R1
+	add	#PpuSignature-., R1
+	mov	#5., R3
+10$:	cmp	(R0)+, (R1)+
+	bne	20$
+	sob	R3, 10$
+	; already have our int
+	mov	#2, R1
+	br	90$
+
+20$:	; call	MouseCursorOn
+	clr	R0
+	clr	R1
+	call	@7132(R0)		; stop FD
+
+	; check mouse presence
+	mov	@#4, OldInt4
+	mov	PC, R0
+	add	#TrapInt-., R0
+	mov	R0, @#4
+	mtps	#0
+	tst	@#177400
+	mtps	#200
+	mov	OldInt4, @#4
+	tst	R1
+	bne	90$			; seems no mouse on 177400
+
+	; maybe we have mouse - replace vsync interrupt
+	mov	@#100, OldInt100
+	mov	PC, R0
+	add	#VsyncInt-., R0
+	mov	R0, @#100
+
+90$:	inc	R1
+	mov	#PpuComm/2, @#177010
+	mov	R1, @#177014
+
+	mtps	#0
+	return
+
+; /////////////////////////////////////////////////////
+
+TrapInt:
+	inc	R1
+	rti
+
+PpuSignature:
+	.ascii	"UKNC Mouse"		; 5-words signature
+
+VSyncInt:
+	mov	@#177010, -(SP)		; need to save it also
+	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	R2, -(SP)
+	mov	R3, -(SP)
+	mov	R4, -(SP)
+	mov	R5, -(SP)
+	inc	DblClickTimer
+
+	mov	@#177400, R0
+	; [YYYYYYYLXXXXXXXR] signed 7-bit
+	mov	MouseRL, R3		; R3 - old RL buttons
+	clr	R2			; R2 - new RL buttons
+	; X and RMB
+	movb	R0, R1
+	asr	R1
+	rol	R2
+	add	R1, MouseX
+	; Y and LMB
+	swab	R0
+	movb	R0, R1
+	asr	R1
+	rol	R2
+	sub	R1, MouseY		; Y is inverted
+	mov	R2, MouseRL
+	
+	; check for L double-click
+	mov	R3, R4
+	asl	R4			; old RL buttons
+	bis	R2, R4
+	dec	R4
+	bne	10$
+	mov	DblClickTimer, R4
+	clr	DblClickTimer
+	cmp	R4, #15.
+	bhi	10$
+	; have double-click
+	bis	#4, R2			; R2 now with L double-click bit
+
+10$:	; check out of screen
+	tst	MouseX
+	bge	22$
+	clr	MouseX
+	br	24$
+22$:	cmp	MouseX, #615.
+	ble	24$
+	mov	#615., MouseX
+24$:	tst	MouseY
+	bge	26$
+	clr	MouseY
+	br	28$
+26$:	cmp	MouseY, #280.
+	ble	28$
+	mov	#280., MouseY
+28$:
+	; now R2 - new DRL buttons, R3 - old RL buttons (without D)
+
+	; store data in CPU
+	mov	#177010, R4
+	mov	#177014, R5
+
+	mov	#BASECTRL/2, (R4)
+	mov	MouseX, (R5)
+	inc	(R4)
+	mov	MouseY, (R5)
+	inc	(R4)
+	; more interesting with buttons - their real state in low byte
+	; and must be BISsed to high byte on clicks only! (changes 0 -> 1 in buttons)
+	mov	(R5), R1
+	; do we need to update h-byte (have changes 0 -> 1)
+	cmp	R2, R3			; compare new DRL and old RL
+	blos	30$
+	; have a click now
+	swab	R1
+	bis	R2, R1
+	swab	R1
+30$:	clrb	R1
+	bis	R2, R1
+	mov	R1, (R5)
+
+	; if DX DY values are non zero and we have cursor - redraw it
+	tst	HaveCursor
+	beq	90$
+	bic	#^B0000000100000001, R0
+	beq	90$
+
+	call	DrawMouse
+
+90$:	; check control word
+	mov	#BASECTRL+6/2, @#177010
+	mov	@#177014, R0
+	beq	99$
+	clr	@#177014
+	; set cursor off?
+	dec	R0
+	bne	92$
+	call	MouseCursorOff
+	br	99$
+92$:	; set cursor on?
+	dec	R0
+	bne	99$
+	call	MouseCursorOn
+
+99$:	; interrupt exit
+	mov	(SP)+, R5
+	mov	(SP)+, R4
+	mov	(SP)+, R3
+	mov	(SP)+, R2
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	mov	(SP)+, @#177010
+
+	jmp	@OldInt100
+
+
+; turn mouse cursor on
+MouseCursorOn:
+	mov	#320., MouseX
+	mov	#140., MouseY
+	clr	MouseRL
+	call	SetVTable		; sets initial our vaddrs table
+	call	StoreUnder
+	inc	HaveCursor
+	return
+
+
+; turn cursor off
+MouseCursorOff:
+	call	RestoreUnder
+	clr	HaveCursor
+	return
+
+
+; set vaddr table
+SetVTable:
+	mov	@#272, R0			; starting vlines table addr
+	mov	PC, R1				; our own vlines table
+	add	#VAddrTable0-., R1
+	clr	R2				; current screen DX divisor
+	mov	#18.+288., R3			; 18. not used lines and 288. main screen lines
+10$:	call	SetVLine
+	sob	R3, 10$
+	return
+
+
+; set individual our vline
+; R0 - addr of next vline table element
+; R1 - addr of our vtable
+; R2 - current screen DX divisor
+SetVLine:
+	bic	#^B001, R0			; clear cursor presence if any
+	bit	#^B010, R0			; test if next element is 4-words
+	beq	90$				; it's 2-words
+	; next is 4-words [data] [data] [vaddr] [next addr]
+	bic	#^B010, R0			; clear (2/4-words control bit)
+	bit	#^B100, R0			; check if it's a resolution change element
+	bne	20$				; no, it's colors change element
+	; resolution changing (now R0 must be normal addr w/o control bits)
+	mov	2(R0), R2			; resolution+luminance control word
+	ash	#-4, R2				; skip to resolution divisor
+	bic	#^B1111111111111100, R2		; just in case (though they already must be 0)
+	neg	R2				; negate it to get negative for ASH -> to divide
+	sub	#3, R2				; additionally /8 (pixels in char by X)
+	br	30$
+20$:	; colors (change them %)
+	bic	#^B111, R0
+;	bis	#^B1111000011110000, (R0)
+;	bis	#^B1111000011110000, 2(R0)
+30$:;	bic	#^B111, R0			; clear all control bits (two of them must be cleared already)
+	add	#4, R0				; skip two control words
+90$:	mov	(R0)+, (R1)+			; set our vaddr
+	mov	R2, (R1)+			; set our divisor
+	mov	(R0), R0			; set next line addr to R0
+	return
+
+
+; store vram under mouse in buffer
+StoreUnder:
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	MouseY, R0
+	asl	R0
+	asl	R0
+	add	PC, R0
+	add	#VAddrTable-., R0		; R0 = our vlines table addr
+	mov	PC, R1
+	add	#DrawBuffer-., R1
+	.rept	8.
+	mov	(R0)+, (R4)			; vaddr by Y
+	mov	(R0)+, R3			; line ash divisor
+	mov	MouseX, R2
+	ash	R3, R2				; divide to get our character addition
+	add	R2, (R4)			; add X to vaddr
+	mov	(R4), (R1)+			; store vaddr
+	mov	(R5), (R1)+			; and two words of data (though they are bytes)
+	inc	(R4)
+	mov	(R5), (R1)+
+	.endr
+	return
+
+
+; restore vram from previous stored
+RestoreUnder:
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	PC, R1
+	add	#DrawBuffer-., R1
+	.rept	8.
+	mov	(R1)+, (R4)
+	mov	(R1)+, (R5)
+	inc	(R4)
+	mov	(R1)+, (R5)
+	.endr
+	return
+
+
+; xor mouse sprite at MouseX MouseY
+DrawMouse:
+	call	RestoreUnder
+	mov	SP, TempSP
+	mov	PC, SP
+	add	#MouSpr-., SP			; SP - mouse line sprite addr
+	;
+	mov	MouseY, R0
+	asl	R0
+	asl	R0
+	add	PC, R0
+	add	#VAddrTable-., R0		; R0 = our vlines table addr
+	mov	PC, R1
+	add	#DrawBuffer-., R1		; R1 = draw buffer addr
+; // REP
+	.rept	8.
+	mov	(R0)+, (R4)			; vaddr by Y
+	mov	(R0)+, R3			; line ash divisor
+	mov	MouseX, R2
+	ash	R3, R2				; divide to get our character addition
+	add	R2, (R4)			; add X to vaddr
+	mov	(R4), (R1)+			; store vaddr
+	mov	(R5), (R1)+			; store vdata
+	; calculate mouse line sprite shift (crazy thing)
+	mov	MouseX, R2
+	add	#5, R3				; -3 (default ash) + 3 = 0, then *4 (2words in sprite)
+	ash	R3, R2
+	bic	#^B1111111111100011, R2
+	add	SP, R2
+	;
+	mov	(R2)+, R3
+	xor	R3, (R5)
+	inc	(R4)
+	mov	(R5), (R1)+
+	mov	(R2), R3
+	xor	R3, (R5)
+	;
+	add	#32., SP			; next sprite line
+	.endr
+; // ENDR
+	mov	TempSP, SP
+	return
+
+
+TempSP:		.word	0
+
+DblClickTimer:	.word	0
+OldInt4:	.word	0
+OldInt100:	.word	0
+
+HaveCursor:	.word	0
+MouseX:		.word	320.
+MouseY:		.word	140.
+MouseRL:	.word	0
+
+; preshifted mouse sprites
+MouSpr:	
+	.word	^B00000001, ^B00000000
+	.word	^B00000010, ^B00000000 
+	.word	^B00000100, ^B00000000 
+	.word	^B00001000, ^B00000000 
+	.word	^B00010000, ^B00000000 
+	.word	^B00100000, ^B00000000 
+	.word	^B01000000, ^B00000000 
+	.word	^B10000000, ^B00000000 
+
+	.word	^B00000011, ^B00000000
+	.word	^B00000110, ^B00000000
+	.word	^B00001100, ^B00000000 
+	.word	^B00011000, ^B00000000 
+	.word	^B00110000, ^B00000000 
+	.word	^B01100000, ^B00000000 
+	.word	^B11000000, ^B00000000 
+	.word	^B10000000, ^B00000001 
+
+	.word	^B00000111, ^B00000000
+	.word	^B00001110, ^B00000000
+	.word	^B00011100, ^B00000000 
+	.word	^B00111000, ^B00000000 
+	.word	^B01110000, ^B00000000 
+	.word	^B11100000, ^B00000000 
+	.word	^B11000000, ^B00000001 
+	.word	^B10000000, ^B00000011 
+
+	.word	^B00001111, ^B00000000 
+	.word	^B00011110, ^B00000000
+	.word	^B00111100, ^B00000000 
+	.word	^B01111000, ^B00000000 
+	.word	^B11110000, ^B00000000 
+	.word	^B11100000, ^B00000001 
+	.word	^B11000000, ^B00000011 
+	.word	^B10000000, ^B00000111 
+
+	.word	^B00011111, ^B00000000
+	.word	^B00111110, ^B00000000
+	.word	^B01111100, ^B00000000 
+	.word	^B11111000, ^B00000000 
+	.word	^B11110000, ^B00000001 
+	.word	^B11100000, ^B00000011 
+	.word	^B11000000, ^B00000111 
+	.word	^B10000000, ^B00001111 
+
+	.word	^B00111111, ^B00000000
+	.word	^B01111110, ^B00000000
+	.word	^B11111100, ^B00000000 
+	.word	^B11111000, ^B00000001 
+	.word	^B11110000, ^B00000011 
+	.word	^B11100000, ^B00000111 
+	.word	^B11000000, ^B00001111 
+	.word	^B10000000, ^B00011111 
+
+	.word	^B01111111, ^B00000000
+	.word	^B11111110, ^B00000000
+	.word	^B11111100, ^B00000001 
+	.word	^B11111000, ^B00000011 
+	.word	^B11110000, ^B00000111 
+	.word	^B11100000, ^B00001111 
+	.word	^B11000000, ^B00011111 
+	.word	^B10000000, ^B00111111 
+
+	.word	^B00001111, ^B00000000 
+	.word	^B00011110, ^B00000000
+	.word	^B00111100, ^B00000000 
+	.word	^B01111000, ^B00000000 
+	.word	^B11110000, ^B00000000 
+	.word	^B11100000, ^B00000001 
+	.word	^B11000000, ^B00000011 
+	.word	^B10000000, ^B00000111 
+
+
+DrawBuffer:	.blkw	8.*3.
+
+; our vlines table
+		.word	0, 1, 2, 3		; start mark
+VAddrTable0:	.blkw	18.*2			; 18. not used lines
+VAddrTable:	.blkw	288.*2			; 288. main lines
+		.word	3, 2, 1, 0		; end mark
+
+PPUEnd:
+
+	.end	Start
