@@ -15,7 +15,7 @@ COMM_NOMOUSE = 3	; already running
 
 Start:	; start PPU code
 	mov	#PPUSta, R4		; run PPU code
-	mov	#<PPUEnd-PPUSta/2>, R5
+	mov	#<PPUEnd-PPUSta>/2, R5
 	call	PPURun
 	; check PPU answer for mouse presents on 177400
 	clr	R0	
@@ -41,6 +41,7 @@ Start:	; start PPU code
 	mov	#MsgNoMouse, R0
 	br	90$
 40$:	cmp	PpuComm, #3	; already running
+	bne	90$
 	call	PPRele
 	mov	#MsgAlready, R0
 90$:	.print
@@ -119,7 +120,21 @@ PPRele:	movb	#2, PPCmd	; 2 - release memory
 ; // PPU
 ; //////////////////////////////////////////////////////////////////////////////
 
-PPUSta:	mtps	#200
+PPUSta:
+	mtps	#200
+	call	@7132(R0)		; stop FD
+
+	; damn that hacks
+	mov	PC, R0
+	add	#PpuSta-., R0
+	mov	#PpuEnd-PpuSta, -(R0)
+	mov	PC, R0
+	add	#PpuEnd-., R0
+	mov	#100000, R1
+	sub	R0, R1
+	clr	(R0)+
+	mov	#23660, (R0)+
+	mov	R1, (R0)+
 
 	; check for presence at 50Hz interrupt
 	mov	@#100, R0
@@ -134,10 +149,8 @@ PPUSta:	mtps	#200
 	mov	#2, R1
 	br	90$
 
-20$:	; call	MouseCursorOn
-	clr	R0
+20$:	clr	R0
 	clr	R1
-	call	@7132(R0)		; stop FD
 
 	; check mouse presence
 	mov	@#4, OldInt4
@@ -163,6 +176,7 @@ PPUSta:	mtps	#200
 
 	mtps	#0
 	return
+
 
 ; /////////////////////////////////////////////////////
 
