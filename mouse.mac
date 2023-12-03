@@ -334,16 +334,22 @@ PlayAY:	tst	NoAY
 	bne	99$
 	mov	#177010, R4
 	mov	#177014, R5
-	mov	#340/2, (R4)
-	tst	(R5)
-	beq	99$
-	mov	#15., R0	
-10$:	dec	(R4)
-	mov	R0, @#177360
-	movb	(R5), @#177360
+	mov	#177360, R3		; addr of AY in PPU (#1 by default)
+	mov	#340/2, (R4)		; addr of 16 regs in CPU
+	mov	(R5), R0		; # of AY to write to
+	beq	99$			; == 0 - do not write at all
 	dec	R0
+	asl	R0			; adding # of AY to write to
+	add	R0, R3			; +
+	mov	#15., R0		; 16. AY registers
+10$:	dec	(R4)
+	mov	(R5), R1
+	bmi	20$
+	mov	R0, (R3)		; write register #
+	movb	R1, (R3)		; write data byte
+20$:	dec	R0
 	bpl	10$
-	mov	#340/2, (R4)
+	mov	#340/2, (R4)		; clear flag in CPU (we are done with AYx)
 	clr	(R5)
 99$:	return
 
