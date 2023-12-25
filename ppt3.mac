@@ -186,40 +186,32 @@ PPUMain:
 	mov	#PpuAyRegisters/2+7, (R4)
 	mov	(R5), R0
 	beq	90$			; no port - exiting
-	mov	R0, 101$+2
-	mov	R0, 102$+2
-	mov	R0, 103$+2
-	mov	R0, 104$+2
-	mov	R0, 105$+2
-	mov	R0, 106$+2
-	mov	R0, 107$+2
-	mov	R0, 108$+2
+	mov	R0, R2
 	; cycle regs except #13.
 	mov	#6., R3
 	clr	R1
 	mov	#PpuAyRegisters/2, (R4)
 10$:	mov	(R5), R0
-101$:	mov	R1, @#177360
-102$:	movb	R0, @#177360
+	mov	R1, (R2)
+	movb	R0, (R2)
 	inc	R1
 	swab	R0
-103$:	mov	R1, @#177360
-104$:	movb	R0, @#177360
+	mov	R1, (R2)
+	movb	R0, (R2)
 	inc	R1
 	inc	(R4)
 	sob	R3, 10$
 	; 12-th
 	mov	(R5), R0
-105$:	mov	R1, @#177360
-106$:	movb	R0, @#177360
+	mov	R1, (R2)
+	movb	R0, (R2)
 	inc	R1
 	swab	R0
 	; 13-th reg
-	tstb	R0
-	bmi	20$
-107$:	mov	R1, @#177360
-108$:	movb	R0, @#177360
-20$:
+;	tstb	R0
+;	bmi	90$
+;	mov	R1, (R2)
+;	movb	R0, (R2)
 
 90$:	; set command parameter to 1 and cycle again
 	mov	#PpuComm/2, @#177010
