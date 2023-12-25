@@ -184,9 +184,8 @@ PPUMain:
 	mov	#177014, R5
 	; set port number
 	mov	#PpuAyRegisters/2+7, (R4)
-	mov	(R5), R0
+	mov	(R5), R2		; R2 = AY port addr
 	beq	90$			; no port - exiting
-	mov	R0, R2
 	; cycle regs except #13.
 	mov	#6., R3
 	clr	R1
