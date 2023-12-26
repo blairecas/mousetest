@@ -1,19 +1,31 @@
 	.title	PPT3
-	.mcall	.print .exit
+	.mcall	.print .exit .setto .csige .readw .close
 	.enabl	LC
 	.list	MEB
 	.asect
 
+;
+; KOI8-R
+; Для переноса этого хозяйства куда-нибудь еще (на Неон например, вдруг ВИ-53 людям мало там станет):
+; Основной код плеера от kuvo внизу (PT3 routines), расчитано на наличие 2-х AY-шек
+; Адрес файла .pt3 вообще в самом уж низу (куда его надо считать)
+; Адрес последнего байта + 1 считанного файла поместить в PT3FILE_END_ADDR
+; Процедура которая кидает байты на AY-ки - REG_OUT: - поменять на своё
+; После считывания файла вызвать Init один раз, затем Play каждый фрейм (50Гц) ожидая END_OF_PT3FILE!=0, затем Mute 
+;
+
 .=1000
-Start:	; TODO: load .pt3 file
+Start:	mov	#1000, SP			; for what? (just in case)
+	call	GetAllMem			; get all memory (up to USR)
+	call	ReadFile			; read file 
 
 	; start PPU code
 	mov	#PPUSta, R4		; run PPU code
 	mov	#<PPUEnd-PPUSta>/2, R5
 	call	PPURun
-	; wait for PPU code be in working order
+	; wait for PPU code be in a working order
 	tst	PpuComm
-	beq	.-4
+	bne	.-4
 	; check for AY presence
 	tst	PpuNoAy
 	beq	10$
@@ -30,14 +42,47 @@ CpuExit:
 	; exit
 	.exit
 
-MsgNoAy:	.asciz	"ERROR: No AY device present on PPU @#177360"
+MsgNoAy:	.asciz	"ERROR: No AY device detected on PPU @#177360"
 		.even
 
+; it's for debug purposes (aligned and with 0-es above and under)
 .=.+32.
 .=.&^B1111111111110000
-PpuAyRegisters:	.byte	24, 1, 0, 0, 0, 0, 0, 76, 17, 0, 0, 0, 0, 0, 0, 0
+; last two bytes aren't R14 R15 but AY UKNC device addr
+PpuAyRegisters:	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 .=.+16.
 .=.&^B1111111111110000
+
+; // Memory ////////////////////////////////////////////////////
+
+RamTop:		.word	0			; top byte of available RAM
+RamLast512:	.word	0			; -512. of above for file reading check size
+
+MsgSettopFailed:
+	.asciz	"ERROR: Can't use all memory (.settop failed)"
+MsgNoMemory:
+	.asciz	"ERROR: Can't allocate memory up to 100000"
+	.even 
+
+; code from Alex_K
+GetAllMem:
+	mov	@#54, R0			; addr of RMON
+	mov	266(R0), R0			; addr of USR? (in case of set USR SWAP)
+	tst	-(R0)				; -2 bytes
+	.setto
+	bcc	10$
+	.print	#MsgSettopFailed
+	.exit
+10$:	mov	R0, RamTop
+	cmp	R0, #100000			; at least top must be 100000 (i want so :)
+	bhis	20$
+	.print	#MsgNoMemory
+	.exit
+20$:	sub	#512., R0			; this is for file read checking out of mem
+	mov	R0, RamLast512
+	return 
+
+; // Vsync /////////////////////////////////////////////////////
 
 Old100Int:	.word	0
 VSyncCount:	.word	0
@@ -45,6 +90,8 @@ VSyncCount:	.word	0
 VSyncInt:
 	inc	VsyncCount
 	rti
+
+; // Play PT3 from CPU memory //////////////////////////////////
 
 ; play PT3 cycle
 PlayPt3:
@@ -55,18 +102,86 @@ PlayPt3:
 	mtps	#0
 
 	call	Init
-10$:
-	tst	VSyncCount
+10$:	tst	VSyncCount			; awaiting vsync
 	beq	10$
 	clr	VSyncCount
-	; prepare AY regs
+	; check for key release in PPU
+	tst	PpuKeyRelease
+	bne	90$
+	; call this play routine every frame
 	call	Play
 	; end of file?
 	tst	END_OF_PT3FILE
 	beq	10$
 
+90$:	; mute two (! UKNC has three !) AY devices
 	call	Mute
 	return
+
+; // File read //////////////////////////////////////////////////
+
+; code from Max (with some changes)
+; https://forum.maxiol.com/index.php?showtopic=5579
+
+fM334:		.word	0
+fM340:		.word	0
+fM342:		.word	0
+
+fDEXT:		.rad50	"PT3"
+		.word	0,0,0
+fBUFF:		.word	0
+fINBLK:		.word	0
+fCRC:		.word	0
+fAREA:		.blkw	5
+fADDR:		.blkw	6
+fDSPAC	=.	; here must be buffer for handlers but we haven't any i suppose
+
+MsgReadError:	.asciz	"ERROR: File read error"
+MsgFileIsBig:	.asciz	"ERROR: File is too big to fit in memory"
+		.even
+
+ReadFile:
+	mov	SP, R5		; save SP (maybe it's not needed)
+	.csige	#fDSPAC, #fDEXT
+	mov	R5, SP		; restore SP (that is written in RT-11 manual examples, so..)
+	; skip getting file size, will read until EOF or out of memory anyway
+	; mov	#3, R0		; CHANNEL #
+	; mov	R0, R2		; @SP = CH
+	; mov	@#54, R1	; R1 = RMON
+	; cmp	(R1)+, (R1)+	; R1 = $CSW
+	; asl	R2		; @SP = CH*2
+	; add	R2, R1		; R1 = $CSW+CH*2
+	; asl	R2		; @SP = CH*4
+	; asl	R2		; @SP = CH*10
+	; add	R2, R1		; R1 = $CSW+CH*12
+	; mov	4(R1), FileSize	; file size in blocks
+	clr	R4		; BLK No
+	mov	#PT3FILE, R5	; read addr
+10$:	.readw	#fAREA, #3, R5, #512., R4
+	bcc	20$
+	tstb	@#52		; EOF error ?
+	beq	90$
+	.print	#MsgReadError
+	br	99$
+20$:	inc	R4
+	add	#512., R5
+	; check for out of memory (yes we can check it earlier with that commented filesize code :)
+	; but somehow I think .pt3 modules are small usually
+	cmp	R5, RamLast512
+	blos	10$
+	.print	#MsgFileIsBig
+	br	99$
+90$:	; end of file reached
+	.close	#3
+	; now must get real file size (need this for TS detection in player)
+	tstb	-(R5)
+	beq	.-2
+	inc	R5		; addr AFTER last byte
+	mov	R5, PT3FILE_END_ADDR
+	return
+99$:	.close	#3		; close input channel (it's #3, output channel is #0)
+	.exit
+
 
 ; //////////////////////////////////////////////////////////////////////////////
 ; // CPU -> PPU exchange	
@@ -138,18 +253,19 @@ PPUSta:
 	clr	R0
 	call	@7132(R0)		; stop FD motor
 
-	; damn that hacks - need to correct memory descriptors
-	mov	PC, R0
-	add	#PpuSta-., R0		; start of program
-	mov	#PpuEnd-PpuSta, -(R0)	; write length of current PPU code block
-	sub	#4, R0			; addr of our descriptor
-	mov	PC, R1
-	add	#PpuEnd-., R1		; end of program
-	mov	#77772, R2
-	sub	R1, R2			; length of free block (assume our program is last though it's incorrect)
-	clr	(R1)+			; 'free'
-	mov	R0, (R1)+		; addr of previous descriptor
-	mov	R2, (R1)+		; length of free mem
+; I don't need this here, it's only for resident PPU code, this code isn't resident
+;	; damn that hacks - need to correct memory descriptors
+;	mov	PC, R0
+;	add	#PpuSta-., R0		; start of program
+;	mov	#PpuEnd-PpuSta, -(R0)	; write length of current PPU code block
+;	sub	#4, R0			; addr of our descriptor
+;	mov	PC, R1
+;	add	#PpuEnd-., R1		; end of program
+;	mov	#77772, R2
+;	sub	R1, R2			; length of free block (assume our program is last though it's incorrect)
+;	clr	(R1)+			; 'free'
+;	mov	R0, (R1)+		; addr of previous descriptor
+;	mov	R2, (R1)+		; length of free mem
 
 	; check AY presence
 	mov	@#4, -(SP)		; save trap int addr (todo: save psw?)
@@ -165,81 +281,134 @@ PPUSta:
 	mov	#PpuNoAy/2, @#177010	; write AY presence into CPU mem
 	mov	R1, @#177014
 
+	; grab keyboard interrupt
+	mov	@#300, Ppu300Int
+	mov	PC, R0
+	add	#PpuKeyboard-., R0
+	mov	R0, @#300
+
 	; signal to CPU that we are working now
 	mov	#PpuComm/2, @#177010
-	mov	#1, @#177014
+	clr	@#177014
+
+	mtps	#0
 
 ; get into cycle, await data from CPU and write it to AY
 PPUMain:
 	mov	#PpuComm/2, @#177010
 	mov	@#177014, R0
 	bmi	PPUExit			; check for command 'PPU code exit'
-	cmp	R0, #2			; asking to write AY registers?
-	bne	PPUMain			; nope - cycle again
+	beq	PPUMain			; if no 'update AY regs' command - cycle again
 
 	; write 14. AY registers (if AY is present)
 	tst	PpuNoAy
 	bne	90$
-	mov	#177010, R4
-	mov	#177014, R5
+
+	mtps	#200			; no way you interrupts!
+	mov	#177010, R4		; CPU addr reg
+	mov	#177014, R5		; CPU data reg
+
 	; set port number
 	mov	#PpuAyRegisters/2+7, (R4)
 	mov	(R5), R2		; R2 = AY port addr
 	beq	90$			; no port - exiting
-	; cycle regs except #13.
-	mov	#6., R3
-	clr	R1
-	mov	#PpuAyRegisters/2, (R4)
-10$:	mov	(R5), R0
-	mov	R1, (R2)
-	movb	R0, (R2)
-	inc	R1
-	swab	R0
-	mov	R1, (R2)
-	movb	R0, (R2)
-	inc	R1
-	inc	(R4)
-	sob	R3, 10$
-	; 12-th
+	; cycle AY regs
+	mov	#13., R1
+	dec	(R4)
 	mov	(R5), R0
+	swab	R0
+	tstb	R0			; R13 is < 0 - no write to reg then
+	bmi	10$
 	mov	R1, (R2)
 	movb	R0, (R2)
-	inc	R1
+10$:	dec 	R1
+	; 12th
 	swab	R0
-	; 13-th reg
-;	tstb	R0
-;	bmi	90$
-;	mov	R1, (R2)
-;	movb	R0, (R2)
+	mov	R1, (R2)
+	movb	R0, (R2)
+	dec	R1
+	; and 12. other regs
+	mov	#6., R3
+20$:	dec	(R4)
+	mov	(R5), R0
+	swab	R0
+	mov	R1, (R2)
+	movb	R0, (R2)
+	dec	R1
+	swab	R0
+	mov	R1, (R2)
+	movb	R0, (R2)
+	dec	R1
+	sob	R3, 20$
 
-90$:	; set command parameter to 1 and cycle again
+	mtps	#0			; ok interrupts go on
+
+90$:	; set command parameter to 0 and cycle again
 	mov	#PpuComm/2, @#177010
-	mov	#1, @#177014
+	clr	@#177014
 	br	PPUMain
 
 PPUExit:
-	; TODO: mute AY if present
+	; TODO: mute AY? (must be already muted but..)
+	mov	Ppu300Int, @#300	; restore kbd interrupt
 	mov	#PpuComm/2, @#177010	; signal to CPU that we are finished
 	clr	@#177014
-	mtps	#0
+	mtps	#0			; just in case
 	return
 
+; PPU trap interrupt (just increase R1)
 TrapInt:
 	inc	R1
 	rti
 
+; PPU keyboard interrupt (signal to CPU that we released anykey)
+PpuKeyboard:
+	mov	@#177010, -(SP)
+	mov	R0, -(SP)
+	mov	@#177702, R0		; key press or release
+	bit	#^B10000000, R0		; is it released?
+	beq	10$
+	mov	#PpuKeyRelease/2, @#177010
+	mov	R0, @#177014
+10$:	mov	(SP)+, R0
+	mov	(SP)+, @#177010
+	rti
+
 PpuNoAy:	.word	0		; =1 -> no AY device
-PpuComm:	.word	0		; =1 -> PPU code is working now
-					; <0 <- ask PPU code to exit
+PpuComm:	.word	177777		; =0 -> PPU code is working now, =1 - ask to write AY regs, <0 - ask for exit
+
+Ppu300Int:	.word	0		; for saving keyboard int addr
+PpuKeyRelease:	.word	0		; =1 -> key was released
+
 PPUEnd:
+
 
 ; /////////////////////////////////////////////////////////////////////////////
 ; // PT3 routines
 ; /////////////////////////////////////////////////////////////////////////////
 
 ; Based on:
-; CSI MultiPlayer 3 for CSIDOS by KUVO (п▒п -0011п°)
+; CSI MultiPlayer 3 for CSIDOS by KUVO (БК-0011М)
 ; https://csi.pdp-11.ru/
+
+; UKNC changes - no legacy AY, no gryphonsound whatsoever, only 'like AZBK' PPU registers
+; AY registers must be passed respectively to 1st or 2nd AY at REG_OUT:
+
+
+; default macro11.exe (with two passes) can make interesting error if it can't find symbol value at 2nd pass
+; (!) and (!) it will not say this to you, but symbol will be just zeroed
+; so (almost) all symbols with '=' declaration are here above all code just in case
+;
+; beware of
+; mov #C, R0
+; C = B + X
+; B = A + X
+; A = 123 + X
+; X = 1 
+; macro11.exe will not even write about it but R0 CAN BE 0 after all (!) 
+
+	AY_1_PORT_AZBK = 177360
+	AY_2_PORT_AZBK = 177362
 
 	AY_TONA = 0
 	AY_TONB = 2
@@ -294,7 +463,7 @@ PPUEnd:
 
 	PARAM_VAR0START =	 	20
 
-	PARAM_PRNOTE =			PARAM_VAR0START
+	PARAM_PRNOTE =			20 ; PARAM_VAR0START
 	PARAM_PRSLIDING =	 	22
 	PARAM_ADDTOENVELOPE =	 	24
 	PARAM_ENV_SLIDE_ADD =		26
@@ -311,11 +480,11 @@ PPUEnd:
 	PARAM_AYREGS =			PARAM_CHANNEL_C + CHP
 
 	PARAM_VOL_TAB = 		PARAM_AYREGS
+	PARAM_ENVELOPE_BASE =	 	PARAM_AYREGS + 14.
 	PARAM_NOTE_TAB =		PARAM_VOL_TAB + 256.
 
 	PARAM_SIZE =			96.*2 + PARAM_NOTE_TAB
 
-	PARAM_ENVELOPE_BASE =	 	PARAM_AYREGS + 14.
 			
 	PARAM_TAB_WORK = PARAM_VOL_TAB + 16. 
 	PARAM_TAB_WORK_OLD_1 = PARAM_TAB_WORK
@@ -329,27 +498,21 @@ PPUEnd:
 
 	PARAM_VAR0END =			PARAM_TAB_WORK
 
-
-PLAYER_ENTRY_POINTS:
-	.word	Init 					;+0  First call before playback
-	.word	Play 					;+2  Main play call for the next position in PT3 file (one quark, one tick)
-	.word	Mute 					;+4  Mute the sound
-
 INTEGRATION_POINTS:
-	FRAME_NUMBER:		.WORD 0 				;+6  Incremented by one each time the PLAY entry point is accessed
-	TS_PRESENT:		.WORD 0 				;+10 TS sign
-	SEL_DEVICE:		.WORD 0 				;+12 Auto selected device: 0 - legacy AY/YM or TurboSound or GryphonSound, 1 - AZBK 
-	PARAMETERS_AY1_ADDR:	.WORD PARAMETERS_AY1 			;+14 Address of the operating parameters of AY1
-	PARAMETERS_AY2_ADDR:	.WORD PARAMETERS_AY2 			;+16 Address of the operating parameters of AY2
-	AYREGS_AY1:		.WORD PARAMETERS_AY1 + PARAM_AYREGS	;+20 Address of last sent AY1 register values
-	AYREGS_AY2:		.WORD PARAMETERS_AY2 + PARAM_AYREGS	;+22 Address of last sent AY2 register values
-	PT3FILE_MODULE1_ADDR:	.WORD PT3FILE 				;+24 PT3 file address
-	PT3FILE_MODULE2_ADDR:	.WORD 0 				;+26 Address of module 2 (TS) in PT3 file
-	PT3FILE_END_ADDR:	.WORD 0 				;+30 Address of end PT3 file
-	END_OF_PT3FILE:		.WORD 0 				;+32 CODA. End of PT3 file reached (incremented by one each time)
-	NO_REPEAT_MODE:		.WORD 0 				;+34 Play without repeat. Set (not zero) before INIT call.
-	REPETITION_NUMBER: 	.WORD 0 				;+36 Number of elapsed repetitions after end of PT3 file
-	CUR_PARAMS_ADDR:	.WORD 0
+	FRAME_NUMBER:		.word 0 				;+6  Incremented by one each time the PLAY entry point is accessed
+	TS_PRESENT:		.word 0 				;+10 TS sign
+	SEL_DEVICE:		.word 0 				;+12 Auto selected device: 0 - legacy AY/YM or TurboSound or GryphonSound, 1 - AZBK 
+	PARAMETERS_AY1_ADDR:	.word PARAMETERS_AY1 			;+14 Address of the operating parameters of AY1
+	PARAMETERS_AY2_ADDR:	.word PARAMETERS_AY2 			;+16 Address of the operating parameters of AY2
+	AYREGS_AY1:		.word PARAMETERS_AY1 + PARAM_AYREGS	;+20 Address of last sent AY1 register values
+	AYREGS_AY2:		.word PARAMETERS_AY2 + PARAM_AYREGS	;+22 Address of last sent AY2 register values
+	PT3FILE_MODULE1_ADDR:	.word PT3FILE 				;+24 PT3 file address
+	PT3FILE_MODULE2_ADDR:	.word 0 				;+26 Address of module 2 (TS) in PT3 file
+	PT3FILE_END_ADDR:	.word 0 				;+30 Address of end PT3 file
+	END_OF_PT3FILE:		.word 0 				;+32 CODA. End of PT3 file reached (incremented by one each time)
+	NO_REPEAT_MODE:		.word 0 				;+34 Play without repeat. Set (not zero) before INIT call.
+	REPETITION_NUMBER: 	.word 0 				;+36 Number of elapsed repetitions after end of PT3 file
+	CUR_PARAMS_ADDR:	.word 0
 
 
 TS_ID:	.ascii	"PT3!PT3!02TS"
@@ -369,14 +532,16 @@ Init:
 	clr	END_OF_PT3FILE
 	clr	PT3FILE_MODULE2_ADDR
 	clr	REPETITION_NUMBER
-	mov	#PT3FILE_END, PT3FILE_END_ADDR
+	; this will be detected after file read
+	; mov	#PT3FILE_END, PT3FILE_END_ADDR
 
 	mov	#PARAM_DEVICES_AY1, R3
 	clr	(R3)+				; legacy (not needed)
 	clr	(R3)+				; gsound (not needed)
-	mov	#177360, (R3)+			; AY_1_PORT_AZBK in UKNC is fixed 177360
+	mov	#AY_1_PORT_AZBK, (R3)+		; AY_1_PORT_AZBK in UKNC is 177360
 	mov	PT3FILE_MODULE1_ADDR, R1
 
+; turbo-sound detection? pt3 can have two modules playing simultaneous on both AY
 TS_DETECT:
 	mov	PT3FILE_END_ADDR, R0
 	mov	#TS_ID_END, R2
@@ -402,7 +567,7 @@ TS_DETECT:
 	mov	#PARAM_DEVICES_AY2, R3
 	clr	(R3)+				; legacy (not needed)
 	clr	(R3)+				; gsound (not needed)
-	mov	#177364, (R3)+			; AY_2_PORT_AZBK in UKNC is fixed 177362
+	mov	#AY_2_PORT_AZBK, (R3)+		; AY_2_PORT_AZBK in UKNC is 177362 (and _3 port is 177364)
 
 INIT_NEXT:
 	mov	R3, CUR_PARAMS_ADDR
@@ -735,25 +900,27 @@ PLAY_NEXT:
 	movb	PARAM_ENV_DELAY(R2), (R0)
 	add	PARAM_ENV_SLIDE_ADD(R2), PARAM_CUR_ENV_SLIDE(R2)
 
+; ///////////////////////////////////////////////////////////////////////////////
+; // Device dependent procedure - copy registers to actual AY device (!)
+
 ; AY registers ready
 REG_OUT:
-	mov	CUR_PARAMS_ADDR, R0
-	mov	R0, R4
-	add	#PARAM_AYREGS, R4
-	; copy regs
-	mov	#PpuAyRegisters, R5
+	mov	CUR_PARAMS_ADDR, R0			; params addr where -2 word have our AY device address
+	mov	R0, R4					; skip to AY actual registers bytes
+	add	#PARAM_AYREGS, R4			;
+	; copy regs to another mem in CPU
+	mov	#PpuAyRegisters, R5			; copy to OUR AY regs buffer
 	mov	-(R0), 14.(R5)				; copy AY port number
-	mov	#14., R3
-	movb	(R4)+, (R5)+
+	mov	#7., R3					; copy 14. reg bytes
+	mov	(R4)+, (R5)+
 	sob	R3, .-2
 	; write regs to AY on PPU bus
-	mov	#2, PpuComm
-	cmp	PpuComm, #2
-	beq	.-6
+	mov	#1, PpuComm				; command to PPU - 'copy registers'
+	tst	PpuComm					; awaiting execution
+	bne	.-4
 	return
 
-MUTE:	; TODO: Mute
-MUTE:
+MUTE:	; mute_next here is called twice, but in fact UNKC has 3 AY ^_^ well.. screw that third 
 	mov	#PARAMETERS_AY1, R4
 	call	MUTE_NEXT
 	mov	#PARAMETERS_AY2, R4
@@ -764,6 +931,7 @@ MUTE_NEXT:
 	movb	#77, PARAM_AYREGS + AY_MIXER(R4)
 	br	REG_OUT
 
+; /////////////////////////////////////////////////////////////////////////////
 
 PD_ORSM:
 	clrb	CHP_ENVELOPE_ENABLED(R5)
@@ -831,7 +999,7 @@ PATTERN_INTERPR:
 	mov	CHP_NOTE(R5), PARAM_PRNOTE(R4)
 	mov	CHP_CURRENT_TON_SLIDING(R5), PARAM_PRSLIDING(R4)
 
-PD_LOOP: 	
+PD_LOOP: 
 	clr	R0
 	bisb	(R3)+, R0
 	cmpb	R0, #^xF0
@@ -848,15 +1016,15 @@ PD_LOOP:
   
 	cmpb	R0, #^x50
 	bhis	PD_NOTE  
-	cmpb	R0, #0X40
+	cmpb	R0, #^x40
 	bhis	PD_ORN  
-	cmpb	R0, #0X20
+	cmpb	R0, #^x20
 	bhis	PD_NOIS 
 	cmpb	R0, #^x10
 	bhis	PD_ESAM 
-  
+
 	asl	R0
-	mov	SPEC_SUBR(R0), -(SP)  
+	mov	SPEC_SUBR(R0), -(SP) 
 	br	PD_LOOP
 
 PD_NOIS:
@@ -977,6 +1145,7 @@ SET_ENVELOPE:
 	movb	(R3)+, PARAM_ENVELOPE_BASE(R4) 
 	clrb	PARAM_CUR_ENV_DELAY(R4)
 	clr	PARAM_CUR_ENV_SLIDE(R4)
+
 SUBR_NOP:
 	return
 
@@ -999,22 +1168,22 @@ SET_ORNAMENT:
 	return
 
 SPEC_SUBR: 	
-	.WORD   SUBR_NOP
-	.WORD   SUBR_GLISS 
-	.WORD   SUBR_PORTM 
-	.WORD   SUBR_SMPOS 
-	.WORD   SUBR_ORPOS 
-	.WORD   SUBR_VIBRT 
-	.WORD   SUBR_NOP
-	.WORD   SUBR_NOP
-	.WORD   SUBR_ENGLS
-	.WORD   SUBR_DELAY 
-	.WORD   SUBR_NOP
-	.WORD   SUBR_NOP
-	.WORD   SUBR_NOP
-	.WORD   SUBR_NOP
-	.WORD   SUBR_NOP
-	.WORD   SUBR_NOP
+	.word   SUBR_NOP
+	.word   SUBR_GLISS 
+	.word   SUBR_PORTM 
+	.word   SUBR_SMPOS 
+	.word   SUBR_ORPOS 
+	.word   SUBR_VIBRT 
+	.word   SUBR_NOP
+	.word   SUBR_NOP
+	.word   SUBR_ENGLS
+	.word   SUBR_DELAY 
+	.word   SUBR_NOP
+	.word   SUBR_NOP
+	.word   SUBR_NOP
+	.word   SUBR_NOP
+	.word   SUBR_NOP
+	.word   SUBR_NOP
 
 CHANGE_REGS:
 	clr	R1  
@@ -1186,131 +1355,113 @@ FILL:	mov	R0, CHP_NOTE_SKIP_COUNTER(R4)
 TABLES:
 
 TAB_C_OLD_0:
- 	.BYTE	^x00 + 1, ^x04 + 1, ^x08 + 1, ^x0A + 1, ^x0C + 1, ^x0E + 1, ^x12 + 1, ^x14 + 1
- 	.BYTE	^x18 + 1, ^x24 + 1, ^x3C + 1, 0
+ 	.byte	^x00 + 1, ^x04 + 1, ^x08 + 1, ^x0A + 1, ^x0C + 1, ^x0E + 1, ^x12 + 1, ^x14 + 1
+ 	.byte	^x18 + 1, ^x24 + 1, ^x3C + 1, 0
 TAB_C_NEW_1:
 TAB_C_OLD_1:
- 	.BYTE	^x5C + 1, 0
+ 	.byte	^x5C + 1, 0
 TAB_C_OLD_2:
-	.BYTE	^x30 + 1, ^x36 + 1, ^x4C + 1, ^x52 + 1, ^x5E + 1, ^x70 + 1, ^x82, ^x8C
- 	.BYTE	^x9C, ^x9E, ^xA0, ^xA6, ^xA8, ^xAA, ^xAC, ^xAE, ^xAE, 0
+	.byte	^x30 + 1, ^x36 + 1, ^x4C + 1, ^x52 + 1, ^x5E + 1, ^x70 + 1, ^x82, ^x8C
+ 	.byte	^x9C, ^x9E, ^xA0, ^xA6, ^xA8, ^xAA, ^xAC, ^xAE, ^xAE, 0
 
 TAB_C_NEW_3:
-	.BYTE	^x56 + 1
+	.byte	^x56 + 1
 TAB_C_OLD_3:
-	.BYTE	^x1E + 1, ^x22 + 1, ^x24 + 1, ^x28 + 1, ^x2C + 1, ^x2E + 1, ^x32 + 1, ^xBE + 1, 0
+	.byte	^x1E + 1, ^x22 + 1, ^x24 + 1, ^x28 + 1, ^x2C + 1, ^x2E + 1, ^x32 + 1, ^xBE + 1, 0
 
 TAB_C_NEW_0:
- 	.BYTE	^x1C + 1, ^x20 + 1, ^x22 + 1, ^x26 + 1, ^x2A + 1, ^x2C + 1, ^x30 + 1, ^x54 + 1
-	.BYTE	^xBC + 1, ^xBE + 1, 0
+ 	.byte	^x1C + 1, ^x20 + 1, ^x22 + 1, ^x26 + 1, ^x2A + 1, ^x2C + 1, ^x30 + 1, ^x54 + 1
+	.byte	^xBC + 1, ^xBE + 1, 0
 
 TAB_C_NEW_2:
-	.BYTE	^x1A + 1, ^x20 + 1, ^x24 + 1, ^x28 + 1, ^x2A + 1, ^x3A + 1, ^x4C + 1, ^x5E + 1
-	.BYTE	^xBA + 1, ^xBC + 1, ^xBE + 1, 0
+	.byte	^x1A + 1, ^x20 + 1, ^x24 + 1, ^x28 + 1, ^x2A + 1, ^x3A + 1, ^x4C + 1, ^x5E + 1
+	.byte	^xBA + 1, ^xBC + 1, ^xBE + 1, 0
 
 EMPTY_SAM_ORN: 
-	.BYTE	0, 1, 0, ^x90, 0, 0 
-	.EVEN
+	.byte	0, 1, 0, ^x90, 0, 0 
+	.even
+EMPTY_SAM_ORN_END:
 
 TABLES_PACK:
- 	.WORD	^x06EC
-	.BYTE	^x0755-^x06EC
-	.BYTE	^x07C5-^x0755
-	.BYTE	^x083B-^x07C5
-	.BYTE	^x08B8-^x083B
-	.BYTE	^x093D-^x08B8
-	.BYTE	^x09CA-^x093D
-	.BYTE	^x0A5F-^x09CA
-	.BYTE	^x0AFC-^x0A5F
-	.BYTE	^x0BA4-^x0AFC
-	.BYTE	^x0C55-^x0BA4
-	.BYTE	^x0D10-^x0C55
-	.BYTE	13.   
-	.EVEN
-	.WORD	^x066D
-	.BYTE	^x06CF-^x066D
-	.BYTE	^x0737-^x06CF
-	.BYTE	^x07A4-^x0737
-	.BYTE	^x0819-^x07A4
-	.BYTE	^x0894-^x0819
-	.BYTE	^x0917-^x0894
-	.BYTE	^x09A1-^x0917
-	.BYTE	^x0A33-^x09A1
-	.BYTE	^x0ACF-^x0A33
-	.BYTE	^x0B73-^x0ACF
-	.BYTE	^x0C22-^x0B73
-	.BYTE	^x0CDA-^x0C22
-	.BYTE	12.   
-	.EVEN
-	.WORD	^x0704
-	.BYTE	^x076E-^x0704
-	.BYTE	^x07E0-^x076E
-	.BYTE	^x0858-^x07E0
-	.BYTE	^x08D6-^x0858
-	.BYTE	^x095C-^x08D6
-	.BYTE	^x09EC-^x095C
-	.BYTE	^x0A82-^x09EC
-	.BYTE	^x0B22-^x0A82
-	.BYTE	^x0BCC-^x0B22
-	.BYTE	^x0C80-^x0BCC
-	.BYTE	^x0D3E-^x0C80
-	.BYTE	12.   
-	.EVEN
-	.WORD	^x07E0
-	.BYTE	^x0858-^x07E0
-	.BYTE	^x08E0-^x0858
-	.BYTE	^x0960-^x08E0
-	.BYTE	^x09F0-^x0960
-	.BYTE	^x0A88-^x09F0
-	.BYTE	^x0B28-^x0A88
-	.BYTE	^x0BD8-^x0B28
-	.BYTE	^x0C80-^x0BD8
-	.BYTE	^x0D60-^x0C80
-	.BYTE	^x0E10-^x0D60
-	.BYTE	^x0EF8-^x0E10
+ 	.word	^x06EC
+	.byte	^x0755-^x06EC
+	.byte	^x07C5-^x0755
+	.byte	^x083B-^x07C5
+	.byte	^x08B8-^x083B
+	.byte	^x093D-^x08B8
+	.byte	^x09CA-^x093D
+	.byte	^x0A5F-^x09CA
+	.byte	^x0AFC-^x0A5F
+	.byte	^x0BA4-^x0AFC
+	.byte	^x0C55-^x0BA4
+	.byte	^x0D10-^x0C55
+	.byte	13.   
+	.even
+	.word	^x066D
+	.byte	^x06CF-^x066D
+	.byte	^x0737-^x06CF
+	.byte	^x07A4-^x0737
+	.byte	^x0819-^x07A4
+	.byte	^x0894-^x0819
+	.byte	^x0917-^x0894
+	.byte	^x09A1-^x0917
+	.byte	^x0A33-^x09A1
+	.byte	^x0ACF-^x0A33
+	.byte	^x0B73-^x0ACF
+	.byte	^x0C22-^x0B73
+	.byte	^x0CDA-^x0C22
+	.byte	12.   
+	.even
+	.word	^x0704
+	.byte	^x076E-^x0704
+	.byte	^x07E0-^x076E
+	.byte	^x0858-^x07E0
+	.byte	^x08D6-^x0858
+	.byte	^x095C-^x08D6
+	.byte	^x09EC-^x095C
+	.byte	^x0A82-^x09EC
+	.byte	^x0B22-^x0A82
+	.byte	^x0BCC-^x0B22
+	.byte	^x0C80-^x0BCC
+	.byte	^x0D3E-^x0C80
+	.byte	12.   
+	.even
+	.word	^x07E0
+	.byte	^x0858-^x07E0
+	.byte	^x08E0-^x0858
+	.byte	^x0960-^x08E0
+	.byte	^x09F0-^x0960
+	.byte	^x0A88-^x09F0
+	.byte	^x0B28-^x0A88
+	.byte	^x0BD8-^x0B28
+	.byte	^x0C80-^x0BD8
+	.byte	^x0D60-^x0C80
+	.byte	^x0E10-^x0D60
+	.byte	^x0EF8-^x0E10
 	.even
 
 NT_DATA:
-	.BYTE   PARAM_TAB_WORK_NEW_0 - PARAM_TAB_WORK, 0, TAB_C_NEW_0 - TABLES
-	.BYTE   PARAM_TAB_WORK_OLD_0 - PARAM_TAB_WORK, 1, TAB_C_OLD_0 - TABLES
-	.BYTE   PARAM_TAB_WORK_NEW_1 - PARAM_TAB_WORK, 1, TAB_C_NEW_1 - TABLES
-	.BYTE   PARAM_TAB_WORK_OLD_1 - PARAM_TAB_WORK, 1, TAB_C_OLD_1 - TABLES
-	.BYTE   PARAM_TAB_WORK_NEW_2 - PARAM_TAB_WORK, 0, TAB_C_NEW_2 - TABLES
-	.BYTE   PARAM_TAB_WORK_OLD_2 - PARAM_TAB_WORK, 0, TAB_C_OLD_2 - TABLES
-	.BYTE   PARAM_TAB_WORK_NEW_3 - PARAM_TAB_WORK, 0, TAB_C_NEW_3 - TABLES
-	.BYTE   PARAM_TAB_WORK_OLD_3 - PARAM_TAB_WORK, 0, TAB_C_OLD_3 - TABLES
+	.byte   PARAM_TAB_WORK_NEW_0 - PARAM_TAB_WORK, 0, TAB_C_NEW_0 - TABLES
+	.byte   PARAM_TAB_WORK_OLD_0 - PARAM_TAB_WORK, 1, TAB_C_OLD_0 - TABLES
+	.byte   PARAM_TAB_WORK_NEW_1 - PARAM_TAB_WORK, 1, TAB_C_NEW_1 - TABLES
+	.byte   PARAM_TAB_WORK_OLD_1 - PARAM_TAB_WORK, 1, TAB_C_OLD_1 - TABLES
+	.byte   PARAM_TAB_WORK_NEW_2 - PARAM_TAB_WORK, 0, TAB_C_NEW_2 - TABLES
+	.byte   PARAM_TAB_WORK_OLD_2 - PARAM_TAB_WORK, 0, TAB_C_OLD_2 - TABLES
+	.byte   PARAM_TAB_WORK_NEW_3 - PARAM_TAB_WORK, 0, TAB_C_NEW_3 - TABLES
+	.byte   PARAM_TAB_WORK_OLD_3 - PARAM_TAB_WORK, 0, TAB_C_OLD_3 - TABLES
 	.even
 
+; Two AY devices params data
+PARAM_DEVICES_AY1:
+	.blkw	PARAM_SIZE*2+12.	; isn't too much?
+PARAMETERS_AY1 = PARAM_DEVICES_AY1 + 6	; in UKNC two words aren't used, third is AY port # (honour kuvo code, so I don't changed unused words here)
+PARAM_DEVICES_AY2 = PARAM_SIZE*2 + PARAMETERS_AY1
+PARAMETERS_AY2 = PARAM_DEVICES_AY2 + 6	; in UKNC two words aren't used, third is AY port #
 
-
+; file data here
 PT3FILE:
-	@includebin test.pt3
-
-PT3FILE_END:
-	.even
-
-PT3FILE_END_EVENED:
-
-	;PARAM_DEVICES_AY1:
-	;				.WORD 0 				;TURBOSOUND AY#1
-	;				.WORD 100000			;MASK OF ONE OF THE GRYPHONSOUND AY
-	;				.WORD AY_1_PORT_AZBK
-	;	PARAMETERS_AY1:
-	;				.BLKB PARAM_SIZE
-
-	;PARAM_DEVICES_AY2:
-	;				.WORD 1 				;TURBOSOUND AY#2
-	;				.WORD 40000				;MASK OF ANOTHER GRYPHONSOUND AY
-	;				.WORD AY_2_PORT_AZBK
-	;	PARAMETERS_AY2:
-	;				.BLKB PARAM_SIZE
-
-
-	PARAM_DEVICES_AY1 = PT3FILE_END_EVENED
-	PARAMETERS_AY1 = PARAM_DEVICES_AY1 + 6 ;SKIP TURBOSOUND SELECTOR (0), GRYPHONSOUND MASK (100000), PORT AZBK (AY_1_PORT_AZBK)
-
-	PARAM_DEVICES_AY2 = PARAMETERS_AY1 + PARAM_SIZE
-	PARAMETERS_AY2 = PARAM_DEVICES_AY2 + 6 ;SKIP TURBOSOUND SELECTOR (1), GRYPHONSOUND MASK (40000), PORT AZBK (AY_2_PORT_AZBK)
+;	@includebin test.pt3
+; PT3FILE_END:
 
 
 	.end	Start

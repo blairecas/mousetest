@@ -6,7 +6,7 @@ echo Compiling
 echo ===========================================================================
 ..\..\php5\php.exe -c ..\..\php5\ -f ..\scripts\preprocess.php ppt3.mac
 if %ERRORLEVEL% NEQ 0 ( exit /b )
-..\..\macro11\macro11.exe -ysl 32 -yus -m ..\..\macro11\sysmac.sml -l _ppt3.lst _ppt3.mac
+..\..\macro11\macro11.exe -ysl 64 -yus -m ..\..\macro11\sysmac.sml -l _ppt3.lst _ppt3.mac
 if %ERRORLEVEL% NEQ 0 ( exit /b )
 
 echo.
