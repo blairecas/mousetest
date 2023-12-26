@@ -124,6 +124,10 @@ PlayPt3:
 
 90$:	; mute two (! UKNC has three !) AY devices
 	call	Mute
+	; restore vsync int
+	mtps	#200
+	mov	Old100Int, @#100
+	mtps	#0
 	return
 
 ; // File read //////////////////////////////////////////////////
