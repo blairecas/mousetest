@@ -81,6 +81,13 @@ GetAllMem:
 	.exit
 20$:	sub	#512., R0			; this is for file read checking out of mem
 	mov	R0, RamLast512
+	; and clear memory up and to top
+	mov	#PT3FILE, R0
+	mov	RamTop, R3
+	sub	R0, R3
+	inc	R3
+	clrb	(R0)+
+	sob	R3, .-2
 	return 
 
 ; // Vsync /////////////////////////////////////////////////////
