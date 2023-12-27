@@ -81,11 +81,10 @@ GetAllMem:
 	.exit
 20$:	sub	#512., R0			; this is for file read checking out of mem
 	mov	R0, RamLast512
-	; and clear memory up and to top
-	mov	#PT3FILE, R0
+	; and clear memory to top from AY params
+	mov	#PARAM_DEVICES_AY1, R0
 	mov	RamTop, R3
 	sub	R0, R3
-	inc	R3
 	clrb	(R0)+
 	sob	R3, .-2
 	return 
@@ -135,10 +134,6 @@ PlayPt3:
 ; code from Max (with some changes)
 ; https://forum.maxiol.com/index.php?showtopic=5579
 
-fM334:		.word	0
-fM340:		.word	0
-fM342:		.word	0
-
 fDEXT:		.rad50	"PT3"
 		.word	0,0,0
 fBUFF:		.word	0
@@ -156,42 +151,43 @@ ReadFile:
 	mov	SP, R5		; save SP (maybe it's not needed)
 	.csige	#fDSPAC, #fDEXT
 	mov	R5, SP		; restore SP (that is written in RT-11 manual examples, so..)
-	; skip getting file size, will read until EOF or out of memory anyway
-	; mov	#3, R0		; CHANNEL #
-	; mov	R0, R2		; @SP = CH
-	; mov	@#54, R1	; R1 = RMON
-	; cmp	(R1)+, (R1)+	; R1 = $CSW
-	; asl	R2		; @SP = CH*2
-	; add	R2, R1		; R1 = $CSW+CH*2
-	; asl	R2		; @SP = CH*4
-	; asl	R2		; @SP = CH*10
-	; add	R2, R1		; R1 = $CSW+CH*12
-	; mov	4(R1), FileSize	; file size in blocks
-	clr	R4		; BLK No
-	mov	#PT3FILE, R5	; read addr
-10$:	.readw	#fAREA, #3, R5, #512., R4
-	bcc	20$
-	tstb	@#52		; EOF error ?
-	beq	90$
-	.print	#MsgReadError
-	br	99$
-20$:	inc	R4
-	add	#512., R5
-	; check for out of memory (yes we can check it earlier with that commented filesize code :)
-	; but somehow I think .pt3 modules are small usually
-	cmp	R5, RamLast512
-	blos	10$
+	; get file size 
+	mov	#3, R0		; CHANNEL #
+	mov	R0, R2		; @SP = CH
+	mov	@#54, R1	; R1 = RMON
+	cmp	(R1)+, (R1)+	; R1 = $CSW
+	asl	R2		; @SP = CH*2
+	add	R2, R1		; R1 = $CSW+CH*2
+	asl	R2		; @SP = CH*4
+	asl	R2		; @SP = CH*10
+	add	R2, R1		; R1 = $CSW+CH*12
+	mov	4(R1), R4	; R4 = file size in blocks
+	; check for 'out of memory'
+	swab	R4		; *256.
+	clrb	R4		; not needed much but ok
+	mov	R4, R5		; R5 - file size in words 
+	asl	R4		; R4 - file size in bytes
+	add	#PT3FILE, R4
+	cmp	R4, RamTop
+	blo	10$
 	.print	#MsgFileIsBig
 	br	99$
-90$:	; end of file reached
-	.close	#3
+	; reading
+10$:	.readw	#fAREA, #3, #PT3FILE, R5, #0
+	bcc	20$
+	tstb	@#52		; EOF error ?
+	beq	20$
+	.print	#MsgReadError
+	br	99$
+20$:	.close	#3
 	; now must get real file size (need this for TS detection in player)
-	tstb	-(R5)
+	tstb	-(R4)
 	beq	.-2
-	inc	R5		; addr AFTER last byte
-	mov	R5, PT3FILE_END_ADDR
+	inc	R4		; addr AFTER last byte
+	mov	R4, PT3FILE_END_ADDR
 	return
-99$:	.close	#3		; close input channel (it's #3, output channel is #0)
+	; close input channel (it's #3, output channel is #0)
+99$:	.close	#3
 	.exit
 
 
@@ -1463,12 +1459,17 @@ NT_DATA:
 	.byte   PARAM_TAB_WORK_OLD_3 - PARAM_TAB_WORK, 0, TAB_C_OLD_3 - TABLES
 	.even
 
+; clear this RAM data?
+
 ; Two AY devices params data
 PARAM_DEVICES_AY1:
-	.blkw	PARAM_SIZE*2+12.	; isn't too much?
-PARAMETERS_AY1 = PARAM_DEVICES_AY1 + 6	; in UKNC two words aren't used, third is AY port # (honour kuvo code, so I don't changed unused words here)
-PARAM_DEVICES_AY2 = PARAM_SIZE*2 + PARAMETERS_AY1
-PARAMETERS_AY2 = PARAM_DEVICES_AY2 + 6	; in UKNC two words aren't used, third is AY port #
+	.word	0, 0, 0			; first two aren't used, third is AY port #
+PARAMETERS_AY1:
+	.blkb	PARAM_SIZE*2
+PARAM_DEVICES_AY2:
+	.word	0, 0, 0
+PARAMETERS_AY2:
+	.blkb	PARAM_SIZE*2
 
 ; file data here
 PT3FILE:
