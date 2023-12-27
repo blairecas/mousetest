@@ -632,7 +632,7 @@ INIT_NEXT:
 	sob	R3, 13$
 
 	movb	#1, PARAM_DELAYCOUNTER(R5)
-	mov	#^xF001, R0 
+	mov	#170001, R0 			; 0xF001
 	mov	#EMPTY_SAM_ORN, R2
 	mov	#PARAM_CHANNEL_A, R4
 	add	R5, R4
@@ -715,7 +715,7 @@ NOTE_TABLE_MAKER:
 	bne	13$
 	mov	CUR_PARAMS_ADDR, R0
 
-	movb	#^xFD, PARAM_NOTE_TAB+56(R0)
+	movb	#375, PARAM_NOTE_TAB+56(R0)	; 0xFD
 
 
 13$:	clr	R0
@@ -948,7 +948,7 @@ PD_ORSM:
 	br	PD_SAM_
 
 PD_SAM:
-	sub	#^xD0, R0
+	sub	#320, R0			; 0xD0
 	asl	R0
 
 PD_SAM_:
@@ -965,7 +965,7 @@ PD_SAM_:
 10$:	br	PD_LOOP
 
 PD_VOL: 	
-	bic	#^xFFF0, R0
+	bic	#177760, R0			; 0xFFF0
 	asl	R0
 	asl	R0
 	asl	R0
@@ -979,7 +979,7 @@ PD_EOFF:
 	br	PD_LOOP
 
 PD_SORE: 	
-	bic	#^xFFF0, R0
+	bic	#177760, R0			; 0xFFF0
 	decb	R0
 	bne	PD_ENV
 	movb	(R3)+, CHP_NUMBER_OF_NOTES_TO_SKIP(R5)
@@ -996,7 +996,7 @@ PD_ORN:
 
 PD_ESAM: 	
 	clrb	CHP_ENVELOPE_ENABLED(R5)
-	bic	#^xFFF0, R0
+	bic	#177760, R0			; 0xFFF0
 	beq	10$
 	call	SET_ENVELOPE
 10$:	clrb	CHP_POSITION_IN_ORNAMENT(R5)
@@ -1010,25 +1010,25 @@ PATTERN_INTERPR:
 PD_LOOP: 
 	clr	R0
 	bisb	(R3)+, R0
-	cmpb	R0, #^xF0
+	cmpb	R0, #360			; 0xF0
 	bhis	PD_ORSM  
-	cmpb	R0, #^xD0
+	cmpb	R0, #320			; 0xD0
 	beq	PD_FIN  
 	bhi	PD_SAM  
-	cmpb	R0, #^xC0
+	cmpb	R0, #300			; 0xC0
 	beq	PD_REL  
 	bhi	PD_VOL
-	cmpb	R0, #^xB0
+	cmpb	R0, #260			; 0xB0
 	beq	PD_EOFF  
 	bhi	PD_SORE  
   
-	cmpb	R0, #^x50
+	cmpb	R0, #120			; 0x50
 	bhis	PD_NOTE  
-	cmpb	R0, #^x40
+	cmpb	R0, #100			; 0x40
 	bhis	PD_ORN  
-	cmpb	R0, #^x20
+	cmpb	R0, #40				; 0x20
 	bhis	PD_NOIS 
-	cmpb	R0, #^x10
+	cmpb	R0, #20				; 0x10
 	bhis	PD_ESAM 
 
 	asl	R0
@@ -1036,7 +1036,7 @@ PD_LOOP:
 	br	PD_LOOP
 
 PD_NOIS:
-	bic	#^xFFE0, R0
+	bic	#177740, R0			; 0xFFE0
 	movb	R0, PARAM_NOISE_BASE(R4)
 	br	PD_LOOP
 
@@ -1045,7 +1045,7 @@ PD_REL:
 	br	PD_RES
 
 PD_NOTE:	
-	sub	#^x50, R0
+	sub	#120, R0			; 0x50
 	mov	R0, CHP_NOTE(R5)
 	movb	#-1, CHP_ENABLED(R5)
 
@@ -1147,7 +1147,7 @@ SUBR_DELAY:
 	return
 
 SET_ENVELOPE:
-	movb	#^x10, CHP_ENVELOPE_ENABLED(R5)
+	movb	#20, CHP_ENVELOPE_ENABLED(R5)		; 0x10
 	movb	R0, PARAM_AYREGS + AY_ENVELOPETYPE(R4)
 	movb	(R3)+, PARAM_ENVELOPE_BASE + 1(R4)
 	movb	(R3)+, PARAM_ENVELOPE_BASE(R4) 
@@ -1158,7 +1158,7 @@ SUBR_NOP:
 	return
 
 SET_ORNAMENT:
- 	bic	#^xFFF0, R0
+ 	bic	#177760, R0				; 0xFFF0
 	asl	R0
 	add	PARAM_ORNAMENTSPOINTERS(R4), R0
 	clr	R1
@@ -1258,7 +1258,7 @@ CHANGE_REGS_NEXT:
 	bisb	(R1), R2
 	swab	R2
 	add	CHP_TON_ACCUMULATOR(R5), R2
-	bit	#^x40, R4   
+	bit	#100, R4   				; 0x40
 	beq	14$
 	mov	R2, CHP_TON_ACCUMULATOR(R5)
 14$:	mov	(SP)+, R1   
@@ -1266,7 +1266,7 @@ CHANGE_REGS_NEXT:
 	add	PARAM_NOTE_TAB(R1), R2 
 	mov	CHP_CURRENT_TON_SLIDING(R5), R1 
 	add	R1, R2  
-	bic	#^xF000, R2
+	bic	#170000, R2				; 0xF000
 	movb	CHP_TONE_REG(R5), R0
 	add	CUR_PARAMS_ADDR, R0
 	mov	R2, PARAM_AYREGS(R0)  
@@ -1296,9 +1296,9 @@ CHANGE_REGS_NEXT:
 	clr	CHP_CURRENT_TON_SLIDING(R5)
 
 17$: 	movb	CHP_CURRENT_AMPLITUDE_SLIDING(R5), R0   
-	bit	#^x80, R3   
+	bit	#200, R3   				; 0x80
 	beq	110$
-	bit	#^x40, R3   
+	bit	#100, R3   				; 0x40
 	beq	18$
 	cmpb	R0, #15. 
 	beq	110$
@@ -1310,7 +1310,7 @@ CHANGE_REGS_NEXT:
 	decb	R0   
 19$:	movb 	R0, CHP_CURRENT_AMPLITUDE_SLIDING(R5)
 110$: 	mov	R4, R1  
-	bic	#^xFFF0, R1 
+	bic	#177760, R1 				; 0xFFF0
 	add	R1, R0  
 	bpl	111$
 	clr	R0
@@ -1325,14 +1325,14 @@ CHANGE_REGS_NEXT:
 	bisb	CHP_ENVELOPE_ENABLED(R5), R1 
 113$:	mov	R3, R0
 	asr	R0
-	bic	#^xFFE0, R0 
-	bit	#^x80, R4   
+	bic	#177740, R0				; 0xFFE0
+	bit	#200, R4				; 0x80
 	beq	116$
-	bit	#^x10, R0   
+	bit	#20, R0					; 0x10
 	beq	114$
-	bis	#^xFFE0, R0 
+	bis	#177740, R0				; 0xFFE0
 114$:	add	CHP_CURRENT_ENVELOPE_SLIDING(R5), R0
-	bit	#^x20, R4   
+	bit	#40, R4					; 0x20
 	beq	115$
 	mov	R0, CHP_CURRENT_ENVELOPE_SLIDING(R5)
 115$: 	mov	CUR_PARAMS_ADDR, R2
@@ -1343,7 +1343,7 @@ CHANGE_REGS_NEXT:
 	add	R3, R0
 	mov	CUR_PARAMS_ADDR, R2
 	mov	R0, PARAM_ADDTONOISE(R2)
-	bit	#^x20, R4   
+	bit	#40, R4					; 0x20
 	beq	117$
 	movb	R0, CHP_CURRENT_NOISE_SLIDING(R5)
 
@@ -1362,90 +1362,176 @@ FILL:	mov	R0, CHP_NOTE_SKIP_COUNTER(R4)
 
 TABLES:
 
+;TAB_C_OLD_0:
+; 	.byte	^x00 + 1, ^x04 + 1, ^x08 + 1, ^x0A + 1, ^x0C + 1, ^x0E + 1, ^x12 + 1, ^x14 + 1
+; 	.byte	^x18 + 1, ^x24 + 1, ^x3C + 1, 0
+;TAB_C_NEW_1:
+;TAB_C_OLD_1:
+; 	.byte	^x5C + 1, 0
+;TAB_C_OLD_2:
+;	.byte	^x30 + 1, ^x36 + 1, ^x4C + 1, ^x52 + 1, ^x5E + 1, ^x70 + 1, ^x82, ^x8C
+; 	.byte	^x9C, ^x9E, ^xA0, ^xA6, ^xA8, ^xAA, ^xAC, ^xAE, ^xAE, 0
+;
+;TAB_C_NEW_3:
+;	.byte	^x56 + 1
+;TAB_C_OLD_3:
+;	.byte	^x1E + 1, ^x22 + 1, ^x24 + 1, ^x28 + 1, ^x2C + 1, ^x2E + 1, ^x32 + 1, ^xBE + 1, 0
+;
+;TAB_C_NEW_0:
+; 	.byte	^x1C + 1, ^x20 + 1, ^x22 + 1, ^x26 + 1, ^x2A + 1, ^x2C + 1, ^x30 + 1, ^x54 + 1
+;	.byte	^xBC + 1, ^xBE + 1, 0
+;
+;TAB_C_NEW_2:
+;	.byte	^x1A + 1, ^x20 + 1, ^x24 + 1, ^x28 + 1, ^x2A + 1, ^x3A + 1, ^x4C + 1, ^x5E + 1
+;	.byte	^xBA + 1, ^xBC + 1, ^xBE + 1, 0
+;
+;EMPTY_SAM_ORN: 
+;	.byte	0, 1, 0, ^x90, 0, 0 
+;	.even
+;EMPTY_SAM_ORN_END:
+;
+;TABLES_PACK:
+; 	.word	^x06EC
+;	.byte	^x0755-^x06EC
+;	.byte	^x07C5-^x0755
+;	.byte	^x083B-^x07C5
+;	.byte	^x08B8-^x083B
+;	.byte	^x093D-^x08B8
+;	.byte	^x09CA-^x093D
+;	.byte	^x0A5F-^x09CA
+;	.byte	^x0AFC-^x0A5F
+;	.byte	^x0BA4-^x0AFC
+;	.byte	^x0C55-^x0BA4
+;	.byte	^x0D10-^x0C55
+;	.byte	13.   
+;	.even
+;	.word	^x066D
+;	.byte	^x06CF-^x066D
+;	.byte	^x0737-^x06CF
+;	.byte	^x07A4-^x0737
+;	.byte	^x0819-^x07A4
+;	.byte	^x0894-^x0819
+;	.byte	^x0917-^x0894
+;	.byte	^x09A1-^x0917
+;	.byte	^x0A33-^x09A1
+;	.byte	^x0ACF-^x0A33
+;	.byte	^x0B73-^x0ACF
+;	.byte	^x0C22-^x0B73
+;	.byte	^x0CDA-^x0C22
+;	.byte	12.   
+;	.even
+;	.word	^x0704
+;	.byte	^x076E-^x0704
+;	.byte	^x07E0-^x076E
+;	.byte	^x0858-^x07E0
+;	.byte	^x08D6-^x0858
+;	.byte	^x095C-^x08D6
+;	.byte	^x09EC-^x095C
+;	.byte	^x0A82-^x09EC
+;	.byte	^x0B22-^x0A82
+;	.byte	^x0BCC-^x0B22
+;	.byte	^x0C80-^x0BCC
+;	.byte	^x0D3E-^x0C80
+;	.byte	12.   
+;	.even
+;	.word	^x07E0
+;	.byte	^x0858-^x07E0
+;	.byte	^x08E0-^x0858
+;	.byte	^x0960-^x08E0
+;	.byte	^x09F0-^x0960
+;	.byte	^x0A88-^x09F0
+;	.byte	^x0B28-^x0A88
+;	.byte	^x0BD8-^x0B28
+;	.byte	^x0C80-^x0BD8
+;	.byte	^x0D60-^x0C80
+;	.byte	^x0E10-^x0D60
+;	.byte	^x0EF8-^x0E10
+;	.even
+
 TAB_C_OLD_0:
- 	.byte	^x00 + 1, ^x04 + 1, ^x08 + 1, ^x0A + 1, ^x0C + 1, ^x0E + 1, ^x12 + 1, ^x14 + 1
- 	.byte	^x18 + 1, ^x24 + 1, ^x3C + 1, 0
+ 	.byte	0 + 1, 4 + 1, 10 + 1, 12 + 1, 14 + 1, 16 + 1, 22 + 1, 24 + 1
+ 	.byte	30 + 1, 44 + 1, 74 + 1, 0
 TAB_C_NEW_1:
 TAB_C_OLD_1:
- 	.byte	^x5C + 1, 0
+ 	.byte	134 + 1, 0
 TAB_C_OLD_2:
-	.byte	^x30 + 1, ^x36 + 1, ^x4C + 1, ^x52 + 1, ^x5E + 1, ^x70 + 1, ^x82, ^x8C
- 	.byte	^x9C, ^x9E, ^xA0, ^xA6, ^xA8, ^xAA, ^xAC, ^xAE, ^xAE, 0
+	.byte	60 + 1, 66 + 1, 114 + 1, 122 + 1, 136 + 1, 160 + 1, 202, 214
+ 	.byte	234, 236, 240, 246, 250, 252, 254, 256, 256, 0
 
 TAB_C_NEW_3:
-	.byte	^x56 + 1
+	.byte	126 + 1
 TAB_C_OLD_3:
-	.byte	^x1E + 1, ^x22 + 1, ^x24 + 1, ^x28 + 1, ^x2C + 1, ^x2E + 1, ^x32 + 1, ^xBE + 1, 0
+	.byte	36 + 1, 42 + 1, 44 + 1, 50 + 1, 54 + 1, 56 + 1, 62 + 1, 276 + 1, 0
 
 TAB_C_NEW_0:
- 	.byte	^x1C + 1, ^x20 + 1, ^x22 + 1, ^x26 + 1, ^x2A + 1, ^x2C + 1, ^x30 + 1, ^x54 + 1
-	.byte	^xBC + 1, ^xBE + 1, 0
+ 	.byte	34 + 1, 40 + 1, 42 + 1, 46 + 1, 52 + 1, 54 + 1, 60 + 1, 124 + 1
+	.byte	274 + 1, 276 + 1, 0
 
 TAB_C_NEW_2:
-	.byte	^x1A + 1, ^x20 + 1, ^x24 + 1, ^x28 + 1, ^x2A + 1, ^x3A + 1, ^x4C + 1, ^x5E + 1
-	.byte	^xBA + 1, ^xBC + 1, ^xBE + 1, 0
+	.byte	32 + 1, 40 + 1, 44 + 1, 50 + 1, 52 + 1, 72 + 1, 114 + 1, 136 + 1
+	.byte	272 + 1, 274 + 1, 276 + 1, 0
 
-EMPTY_SAM_ORN: 
-	.byte	0, 1, 0, ^x90, 0, 0 
+EMPTY_SAM_ORN:
+	.byte	0, 1, 0, 220, 0, 0
 	.even
 EMPTY_SAM_ORN_END:
 
 TABLES_PACK:
- 	.word	^x06EC
-	.byte	^x0755-^x06EC
-	.byte	^x07C5-^x0755
-	.byte	^x083B-^x07C5
-	.byte	^x08B8-^x083B
-	.byte	^x093D-^x08B8
-	.byte	^x09CA-^x093D
-	.byte	^x0A5F-^x09CA
-	.byte	^x0AFC-^x0A5F
-	.byte	^x0BA4-^x0AFC
-	.byte	^x0C55-^x0BA4
-	.byte	^x0D10-^x0C55
-	.byte	13.   
+ 	.word	3354
+	.byte	3525-3354
+	.byte	3705-3525
+	.byte	4073-3705
+	.byte	4270-4073
+	.byte	4475-4270
+	.byte	4712-4475
+	.byte	5137-4712
+	.byte	5374-5137
+	.byte	5644-5374
+	.byte	6125-5644
+	.byte	6420-6125
+	.byte	13.
 	.even
-	.word	^x066D
-	.byte	^x06CF-^x066D
-	.byte	^x0737-^x06CF
-	.byte	^x07A4-^x0737
-	.byte	^x0819-^x07A4
-	.byte	^x0894-^x0819
-	.byte	^x0917-^x0894
-	.byte	^x09A1-^x0917
-	.byte	^x0A33-^x09A1
-	.byte	^x0ACF-^x0A33
-	.byte	^x0B73-^x0ACF
-	.byte	^x0C22-^x0B73
-	.byte	^x0CDA-^x0C22
-	.byte	12.   
+	.word	3155
+	.byte	3317-3155
+	.byte	3467-3317
+	.byte	3644-3467
+	.byte	4031-3644
+	.byte	4224-4031
+	.byte	4427-4224
+	.byte	4641-4427
+	.byte	5063-4641
+	.byte	5317-5063
+	.byte	5563-5317
+	.byte	6042-5563
+	.byte	6332-6042
+	.byte	12.
 	.even
-	.word	^x0704
-	.byte	^x076E-^x0704
-	.byte	^x07E0-^x076E
-	.byte	^x0858-^x07E0
-	.byte	^x08D6-^x0858
-	.byte	^x095C-^x08D6
-	.byte	^x09EC-^x095C
-	.byte	^x0A82-^x09EC
-	.byte	^x0B22-^x0A82
-	.byte	^x0BCC-^x0B22
-	.byte	^x0C80-^x0BCC
-	.byte	^x0D3E-^x0C80
-	.byte	12.   
+	.word	3404
+	.byte	3556-3404
+	.byte	3740-3556
+	.byte	4130-3740
+	.byte	4326-4130
+	.byte	4534-4326
+	.byte	4754-4534
+	.byte	5202-4754
+	.byte	5442-5202
+	.byte	5714-5442
+	.byte	6200-5714
+	.byte	6476-6200
+	.byte	12.
 	.even
-	.word	^x07E0
-	.byte	^x0858-^x07E0
-	.byte	^x08E0-^x0858
-	.byte	^x0960-^x08E0
-	.byte	^x09F0-^x0960
-	.byte	^x0A88-^x09F0
-	.byte	^x0B28-^x0A88
-	.byte	^x0BD8-^x0B28
-	.byte	^x0C80-^x0BD8
-	.byte	^x0D60-^x0C80
-	.byte	^x0E10-^x0D60
-	.byte	^x0EF8-^x0E10
+	.word	3740
+	.byte	4130-3740
+	.byte	4340-4130
+	.byte	4540-4340
+	.byte	4760-4540
+	.byte	5210-4760
+	.byte	5450-5210
+	.byte	5730-5450
+	.byte	6200-5730
+	.byte	6540-6200
+	.byte	7020-6540
+	.byte	7370-7020
 	.even
 
 NT_DATA:
