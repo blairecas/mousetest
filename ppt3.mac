@@ -418,7 +418,7 @@ PPUEnd:
 ; macro11.exe will not even write about it but R0 CAN BE 0 after all (!) 
 
 	AY_1_PORT_AZBK = 177360
-	AY_2_PORT_AZBK = 0
+	AY_2_PORT_AZBK = 177362
 
 	AY_TONA = 0
 	AY_TONB = 2
