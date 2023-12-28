@@ -312,7 +312,6 @@ PPUMain:
 	tst	PpuNoAy
 	bne	90$
 
-	mtps	#200			; no way you interrupts!
 	mov	#177010, R4		; CPU addr reg
 	mov	#177014, R5		; CPU data reg
 
@@ -320,6 +319,9 @@ PPUMain:
 	mov	#PpuAyRegisters/2+7, (R4)
 	mov	(R5), R2		; R2 = AY port addr
 	beq	90$			; no port - exiting
+
+	mtps	#200			; no way you interrupts!
+
 	; cycle AY regs
 	mov	#13., R1
 	dec	(R4)
@@ -416,7 +418,7 @@ PPUEnd:
 ; macro11.exe will not even write about it but R0 CAN BE 0 after all (!) 
 
 	AY_1_PORT_AZBK = 177360
-	AY_2_PORT_AZBK = 177362
+	AY_2_PORT_AZBK = 0
 
 	AY_TONA = 0
 	AY_TONB = 2
@@ -544,7 +546,7 @@ Init:
 	; mov	#PT3FILE_END, PT3FILE_END_ADDR
 
 	mov	#PARAM_DEVICES_AY1, R3
-	clr	(R3)+				; legacy (not needed)
+	clr	(R3)+				; legacy (not needed)	
 	clr	(R3)+				; gsound (not needed)
 	mov	#AY_1_PORT_AZBK, (R3)+		; AY_1_PORT_AZBK in UKNC is 177360
 	mov	PT3FILE_MODULE1_ADDR, R1
