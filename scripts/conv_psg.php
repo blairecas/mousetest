@@ -22,7 +22,7 @@ function getFF ($f)
 
     /////////////////////////////////////////////////
 
-    $f = fopen("super_mario_log.psg", "rb");
+    $f = fopen("../pt3/prihod.psg", "rb");
 
     fread($f, 16);          // skip header
     $skip_spaces = true;    // skip initial FE spaces
@@ -57,7 +57,7 @@ function getFF ($f)
     fclose ($f);
 
     // output
-    $g = fopen("super_mario_log.txt", "wb");
+    $g = fopen("prihod_log.txt", "wb");
     fputs($g, "MarioPsg:\n");
     for ($i=0; $i<$frame; $i++)
     {

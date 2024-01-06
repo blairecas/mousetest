@@ -6,7 +6,9 @@
 
 SCRWID = 80.
 
-Start:
+Start:	mov	#MsgCls, R0
+	call	PriStr	
+
 	; start PPU code
 	inc	PPComm
 	mov	#PPUSta, R4		; run PPU code
@@ -47,6 +49,19 @@ Start:
 
 50$:	; TODO: what else?
 	br	10$
+
+MsgCls: .byte	033, 014, 110, 0
+
+; print string with channel 0
+; r0 = addr
+PriStr:
+	movb	(R0)+, R1
+	beq	99$
+	tstb	@#177564
+	bpl	.-4
+	movb	r1, @#177566
+	br	pristr
+99$:	return 
 
 
 ClearPlanes12:

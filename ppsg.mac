@@ -1,0 +1,322 @@
+	.mcall	.print .exit .setto .csige .readw .close
+	.enabl	LC
+	.list	MEB
+	.asect
+	.=1000
+
+; /////////////////////////////////////////////////////////////////////////////
+
+Start:	mov	#1000, SP			; for what? (just in case)
+	call	GetAllMem			; get all memory (up to USR)
+	.print	#MsgCls
+	call	ClearVram12			; clear vram planes 1 and 2
+	call	ReadFile			; read file (to vram12)
+
+	; start PPU code
+	mov	#PPUSta, R4		; run PPU code
+	mov	#<PPUEnd-PPUSta>/2, R5
+	call	PPURun
+	; check PPU answer
+10$:	tst	PpuComm
+	beq	10$
+
+	; exiting
+	call	ClearVram12			; clear vram again (maybe need to do .print #clrscr also)
+	.print	#MsgCls
+	call	PPRele
+	.exit
+
+MsgCls: .byte	033, 014, 110, 0
+
+; // Memory ////////////////////////////////////////////////////
+
+MsgSettopFailed:
+	.asciz	"ERROR: Can't use all memory (.settop failed)"
+MsgNoMemory:
+	.asciz	"ERROR: Can't allocate memory up to 100000"
+	.even 
+
+; code from Alex_K
+GetAllMem:
+	mov	@#54, R0			; addr of RMON
+	mov	266(R0), R0			; addr of USR? (in case of set USR SWAP)
+	tst	-(R0)				; -2 bytes
+	.setto
+	bcc	10$
+	.print	#MsgSettopFailed
+	.exit
+10$:	cmp	R0, #100000			; at least top must be 100000 (i want so :)
+	bhis	20$
+	.print	#MsgNoMemory
+	.exit
+20$:	return 
+
+; clear vram planes 1 and 2
+ClearVram12:
+	mov	#176640, R4
+	mov	#176642, R5
+	mov	#100000, R3
+	mov	R3, (R4)
+10$:	clr	(R5)
+	inc	(R4)
+	sob	R3, 10$
+	return
+
+; // File read //////////////////////////////////////////////////
+
+; code from Max (with some changes)
+; https://forum.maxiol.com/index.php?showtopic=5579
+
+fDEXT:		.rad50	"PSG"
+		.word	0,0,0
+fBUFF:		.word	0
+fINBLK:		.word	0
+fCRC:		.word	0
+fAREA:		.blkw	5
+fADDR:		.blkw	6
+fDSPAC	=.	; here must be buffer for handlers but we haven't any i suppose
+
+MsgReadError:	.asciz	"ERROR: File read error"
+MsgFileIsBig:	.asciz	"ERROR: File is too big to fit in memory (127. blocks max)"
+		.even
+
+Buffer512:	.blkb	512.
+
+ReadFile:
+	mov	SP, R5		; save SP (maybe it's not needed)
+	.csige	#fDSPAC, #fDEXT
+	mov	R5, SP		; restore SP (that is written in RT-11 manual examples, so..)
+	; get file size 
+	mov	#3, R0		; CHANNEL #
+	mov	R0, R2		; @SP = CH
+	mov	@#54, R1	; R1 = RMON
+	cmp	(R1)+, (R1)+	; R1 = $CSW
+	asl	R2		; @SP = CH*2
+	add	R2, R1		; R1 = $CSW+CH*2
+	asl	R2		; @SP = CH*4
+	asl	R2		; @SP = CH*10
+	add	R2, R1		; R1 = $CSW+CH*12
+	mov	4(R1), R0	; R4 = file size in blocks
+	; check for 'out of memory'
+	cmp	R0, #127.	; 127. blocks max .psg file
+	blos	2$
+	.print	#MsgFileIsBig
+	br	99$
+2$:	; reading
+	clr	R4		; current block
+	mov	#100000, R5	; add in vram to read to
+10$:	.readw	#fAREA, #3, #Buffer512, #256., R4
+	bcc	20$
+	tstb	@#52		; EOF error ?
+	beq	40$
+	.print	#MsgReadError
+	br	99$
+20$: 	; copy buffer to screen vram
+	mov	#256., R3
+	mov	#Buffer512, R0
+30$:	mov	R5, @#176640
+	mov	(R0)+, @#176642
+	inc	R5
+	sob	R3, 30$
+	; inc block to read
+	inc	R4
+	; and loop until EOF
+	br	10$
+40$:	; TODO: need to get file real end
+	sub	#100000, R5
+	asl	R5
+	mov	R5, MusicEndAddr
+	.close	#3
+	return
+99$:	.close	#3
+	.exit
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // CPU -> PPU exchange	
+; //////////////////////////////////////////////////////////////////////////////
+
+PpuComm:	.word	0
+MsgPpuNoMemory:	.asciz	"ERROR: Unable to allocate memory in PPU"
+		.even
+
+; PPU message
+;
+PPmsg:	.word	PPArr	; address of beginning of array
+        .word	177777	; end of transmission
+
+; PPU data exchange array
+;
+PPArr:	.byte	0	; return value (0 - OK)
+PPCmd:	.byte	0	; command
+	.word	32	; device type (32 - PPU mem)
+PPApp:	.word	0	; address for PPU
+PPAcp:	.word	0	; address for CPU
+PPLen:	.word	0	; length in words
+
+; send command to PPU with exch array
+PPSen:	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	#PPMsg, R0	; array address
+	mov	#5, R1		; bytes to send+1 (sending from @#PP_MSG)
+	br	1$
+2$:	movb	(R0)+, @#176676
+1$:	tstb	@#176674	; test if we are ready to send
+	bpl	1$		; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 2$
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	return
+
+; send and start PPU code
+; R4 - start addr in CPU
+; R5 - length / 2
+PPURun:	movb	#1, PPCmd	; 1 - allocate memory
+	mov	R5, PPLen
+	call	PPSen
+	tstb	PPArr		; test if allocate success
+	beq	1$		; 0 - OK
+	.print	#MsgPpuNoMemory
+	.exit			; fatal error - out of memory in PPU
+1$:	movb	#20, PPCmd	; 20 - write to PPU mem
+	mov	R5, PPLen
+	mov 	R4, PPAcp
+	call	PPSen
+	movb	#30, PPCmd	; 30 - run
+	call	PPSen
+	return
+
+; release PPU memory
+PPRele:	movb	#2, PPCmd	; 2 - release memory
+	call	PPSen
+	return
+
+
+; //////////////////////////////////////////////////////////////////////////////	
+; // PPU
+; //////////////////////////////////////////////////////////////////////////////
+
+PPUSta:
+	mtps	#200
+	clr	R0
+	call	@7132(R0)		; stop FD
+
+	; check for AY
+	call	ChkAY
+	tst	NoAY
+	bne	90$	
+
+	; skip .psg header (16. bytes) and first FF
+	mov	#17., MusicCurAddr
+
+	; if have AY then replace #100 interrupt
+	mov	@#100, OldInt100
+	mov	PC, R0
+	add	#VsyncInt-., R0
+	mov	R0, @#100
+
+	; allow 50Hz int and wait until..
+	mtps	#0
+	tst	MusicEnd
+	beq	.-4
+
+	; mute AY #0
+	mov	#13., R0
+10$:	mov	R0, @#177360
+	clrb	@#177360
+	dec	R0
+	bpl	10$
+
+	; restoring #100 int
+	mtps	#200
+	mov	OldInt100, @#100
+	mtps	#0
+
+90$:	; signal to CPU for exit
+	mov	#PpuComm/2, @#177010
+	mov	#1, @#177014
+	return
+
+
+; /////////////////////////////////////////////////////
+
+; get byte -> R0 from vaddr and advance it
+GetB12:	mov	(PC)+, R0
+GetA12:	.word	0			; vram addr rel to 200000
+	inc	GetA12
+GetR12:	sec
+	ror	R0
+	bcs	10$
+	mov	R0, @#177010
+	movb	@#177014, R0
+	return
+10$:	mov	R0, @#177010
+	movb	@#177015, R0
+	return
+
+OldInt4:	.word	0
+OldInt100:	.word	0
+MusicCurAddr:	.word	0
+MusicEndAddr:	.word	0
+MusicEnd:	.word	0
+
+TrapInt:
+	inc	R1
+	rti
+
+	.word	0, 1, 2, 3, 4, 5, 6, 7
+
+VSyncInt:
+	mov	@#177010, -(SP)
+	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	R2, -(SP)
+	mov	R3, -(SP)
+	mov	R4, -(SP)
+	mov	R5, -(SP)
+
+	mov	MusicCurAddr, GetA12	; addr in vram 
+
+	; put AY registers
+	mov	#^B1111111100000000, R2
+30$:	cmp	GetA12, MusicEndAddr
+	blo	40$
+	inc	MusicEnd
+	br	50$
+40$:	call	GetB12			; get reg #, if FF - it's an end of current frame
+	bic	R2, R0
+	cmp	R0, #377
+	beq	50$
+	mov	R0, @#177360
+	call	GetB12
+	movb	R0, @#177360
+	br	30$
+50$:	mov	GetA12, MusicCurAddr
+
+90$:	mov	(SP)+, R5
+	mov	(SP)+, R4
+	mov	(SP)+, R3
+	mov	(SP)+, R2
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	mov	(SP)+, @#177010
+	rti
+
+; AY test routine
+NoAY:	.word	0
+
+ChkAY:	mov	@#4, OldInt4
+	mov	PC, R0
+	add	#TrapInt-., R0
+	mov	R0, @#4
+	clr	R1
+	mtps	#0
+	tst	@#177360
+	mtps	#200
+	mov	OldInt4, @#4
+	mov	R1, NoAY
+	return
+
+PPUEnd:
+
+	.end	Start
