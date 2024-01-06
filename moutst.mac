@@ -452,7 +452,7 @@ PpuMain:
 	inc	@#177014
 
 40$:	; if DX DY values are zero - cycle it
-	bic	#^B0000000100000001, R0
+	bit	#^B1111111011111110, R0
 	beq	PpuMain
 
 	mov	#177010, R4
