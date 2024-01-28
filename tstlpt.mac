@@ -1,0 +1,188 @@
+	.mcall	.exit
+	.enabl	LC
+	.list	MEB
+	.asect
+	.=1000
+
+Start:	; clear screen with ESC codes
+	mov	#MsgCls, R0
+	call	PrintString
+
+	; start PPU code
+	mov	#PPUSta, R4		; run PPU code
+	mov	#PPUEnd-PPUSta/2, R5
+	call	PPURun
+
+	; wait for PPU to finish
+	tst	PPcomm
+	beq	.-4
+
+	; release PPU mem
+	call	PPRele
+
+	; print results
+	mov	PPdata, R0
+	call	PrintOctal
+
+	.exit
+
+PPcomm:	.word	0	; CPU-PPU communication status word
+PPdata:	.word	0
+
+; //////////////////////////////////////////////////////////////////////////////
+; // Printing
+; //////////////////////////////////////////////////////////////////////////////
+
+MsgCls: .byte	033, 014, 110, 0
+MsgMem:	.asciz	"ERROR: unable to allocate memory in PPU"
+	.even
+
+; print string with channel 0
+; r0 = addr
+PrintString:
+	movb	(R0)+, R1
+	beq	99$
+	tstb	@#177564
+	bpl	.-4
+	movb	r1, @#177566
+	br	PrintString
+99$:	return 
+
+; prints octal from R0
+PrintOctal:
+	clr	R1
+	mov	#6., R3
+	br	20$
+10$:	clr	R1
+	rol	R0
+	rol	R1
+	rol	R0
+	rol	R1
+20$:	rol	R0
+	rol	R1
+	add	#'0, R1
+	tstb	@#177564
+	bpl	.-4
+	movb	R1, @#177566
+	sob	R3, 10$
+	return
+
+; //////////////////////////////////////////////////////////////////////////////
+; // CPU -> PPU exchange	
+; //////////////////////////////////////////////////////////////////////////////
+
+; PPU message
+;
+PPmsg:	.word	PPArr	; address of beginning of array
+        .word	177777	; end of transmission
+
+; PPU data exchange array
+;
+PPArr:	.byte	0	; return value (0 - OK)
+PPCmd:	.byte	0	; command
+	.word	32	; device type (32 - PPU mem)
+PPApp:	.word	0	; address for PPU
+PPAcp:	.word	0	; address for CPU
+PPLen:	.word	0	; length in words
+
+; send command to PPU with exch array
+PPSen:	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	#PPMsg, R0	; array address
+	mov	#5, R1		; bytes to send+1 (sending from @#PP_MSG)
+	br	1$
+2$:	movb	(R0)+, @#176676
+1$:	tstb	@#176674	; test if we are ready to send
+	bpl	1$		; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 2$
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	return
+
+; send and start PPU code
+; R4 - start addr in CPU
+; R5 - length / 2
+PPURun:	movb	#1, PPCmd	; 1 - allocate memory
+	mov	R5, PPLen
+	call	PPSen
+	tstb	PPArr		; test if allocate success
+	beq	1$		; 0 - OK
+	mov	#MsgMem, R0
+	call	PrintString
+	.exit			; fatal error - out of memory in PPU
+1$:	movb	#20, PPCmd	; 20 - write to PPU mem
+	mov	R5, PPLen
+	mov 	R4, PPAcp
+	call	PPSen
+	movb	#30, PPCmd	; 30 - run
+	call	PPSen
+	return
+
+; release PPU memory
+PPRele:	movb	#2, PPCmd	; 2 - release memory
+	call	PPSen
+	return
+
+
+; //////////////////////////////////////////////////////////////////////////////	
+; // PPU
+; //////////////////////////////////////////////////////////////////////////////
+
+PPUSta:	mtps	#200
+	clr	R0
+	call	@7132(R0)		; stop FD
+
+	mov	#177, @#177103		; LPT all ports to output
+
+	; latch addr
+	mov	#377, @#177102		; inactive AY bus
+	mov	#376, @#177101		; reg #1 addr
+	mov	#374, @#177102		; latch addr command (BDIR=1, BC1=1)
+	nop
+	nop
+	nop
+	mov	#377, @#177102		; inactive AY bus
+
+	; write data 
+	mov	#377, @#177102		; inactive AY bus
+	mov	#123, @#177101		; reg #1 data
+	mov	#375, @#177102		; write data command
+	nop
+	nop
+	nop
+	mov	#377, @#177102		; inactive AY bus
+
+	; again latch addr
+	mov	#377, @#177102		; inactive AY bus
+	mov	#376, @#177101		; reg #1 addr
+	mov	#374, @#177102		; latch addr command (BDIR=1, BC1=1)
+	nop
+	nop
+	nop
+	mov	#377, @#177102		; inactive AY bus
+
+	; read data
+	mov	#377, @#177101		; port B = 0
+	mov	#175, @#177103		; LPT port B to read
+	mov	#377, @#177102		; inactive AY bus
+	mov	#376, @#177102		; read data command
+	nop
+	nop
+	nop
+	mov	@#177101, R0		; read
+	mov	#377, @#177102		; inactive AY bus
+
+	; write to CPU
+	mov	#PPdata/2, @#177010
+	mov	R0, @#177014
+
+	; signal to CPU that we are finished
+	mov	#PPcomm/2, @#177010
+	mov	#1, @#177014
+
+	mtps	#0
+	return
+
+PPUEnd:
+
+	.end	Start

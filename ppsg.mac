@@ -287,9 +287,11 @@ VSyncInt:
 	bic	R2, R0
 	cmp	R0, #377
 	beq	50$
+	; put reg
 	mov	R0, @#177360
 	call	GetB12
 	movb	R0, @#177360
+	; end put reg
 	br	30$
 50$:	mov	GetA12, MusicCurAddr
 
