@@ -20,14 +20,9 @@ Start:	; clear screen with ESC codes
 	; release PPU mem
 	call	PPRele
 
-	; print results
-	mov	PPdata, R0
-	call	PrintOctal
-
 	.exit
 
 PPcomm:	.word	0	; CPU-PPU communication status word
-PPdata:	.word	0
 
 ; //////////////////////////////////////////////////////////////////////////////
 ; // Printing
@@ -134,47 +129,25 @@ PPUSta:	mtps	#200
 
 	mov	#177, @#177103		; LPT all ports to output
 
-	; latch addr
-	mov	#377, @#177102		; inactive AY bus
-	mov	#376, @#177101		; reg #1 addr
-	mov	#374, @#177102		; latch addr command (BDIR=1, BC1=1)
-	nop
-	nop
-	nop
-	mov	#377, @#177102		; inactive AY bus
+	mov	PC, R0			; R0 -> start sample addr
+	add	#SampleBegin-., R0
+	mov	PC, R3			; R3 -> end sample addr
+	add	#SampleEnd-., R3
 
-	; write data 
-	mov	#377, @#177102		; inactive AY bus
-	mov	#123, @#177101		; reg #1 data
-	mov	#375, @#177102		; write data command
-	nop
-	nop
-	nop
-	mov	#377, @#177102		; inactive AY bus
+	mov	#16000, R4		; R4 -> play frequency
+	clr	R5
 
-	; again latch addr
-	mov	#377, @#177102		; inactive AY bus
-	mov	#376, @#177101		; reg #1 addr
-	mov	#374, @#177102		; latch addr command (BDIR=1, BC1=1)
+10$:	movb	(R0), R2
+	com	R2
+	mov	R2, @#177100
+;	add	R4, R5
+;	adc	R0
+	inc	R0
+	.rept	20.
 	nop
-	nop
-	nop
-	mov	#377, @#177102		; inactive AY bus
-
-	; read data
-	mov	#377, @#177101		; port B = 0
-	mov	#175, @#177103		; LPT port B to read
-	mov	#377, @#177102		; inactive AY bus
-	mov	#376, @#177102		; read data command
-	nop
-	nop
-	nop
-	mov	@#177101, R0		; read
-	mov	#377, @#177102		; inactive AY bus
-
-	; write to CPU
-	mov	#PPdata/2, @#177010
-	mov	R0, @#177014
+	.endr
+	cmp	R0, R3
+	blo	10$
 
 	; signal to CPU that we are finished
 	mov	#PPcomm/2, @#177010
@@ -182,6 +155,13 @@ PPUSta:	mtps	#200
 
 	mtps	#0
 	return
+
+
+
+SampleBegin:
+	@includebin sound/sample16u.raw
+	.even
+SampleEnd:	
 
 PPUEnd:
 
