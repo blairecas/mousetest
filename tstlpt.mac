@@ -1,28 +1,90 @@
-	.mcall	.exit
+	.mcall	.exit .csige .readw .close .ttyin
 	.enabl	LC
 	.list	MEB
 	.asect
 	.=1000
 
-Start:	; clear screen with ESC codes
-	mov	#MsgCls, R0
+Start:	mov	#1000, SP			; just in case
+	bis	#10000, @#44			; don't echo input keys
+
+	; prints hello message
+	mov	#MsgHello, R0
 	call	PrintString
+	.ttyin
+	cmp	R0, #32.
+	beq	Main
+	jmp	Exit
+
+Main:	; read file
+	bic	#10000, @#44			; echo input keys
+	call	ReadFile			; read file (to vram12)
+	bis	#10000, @#44			; don't echo input keys
 
 	; start PPU code
-	mov	#PPUSta, R4		; run PPU code
+	mov	#PPUSta, R4
 	mov	#PPUEnd-PPUSta/2, R5
 	call	PPURun
 
-	; wait for PPU to finish
+10$:	; ask PPU to play raw and wait for execution end
+	mov	#1, PPcomm
 	tst	PPcomm
-	beq	.-4
+	bne	.-4
+
+	; wait for keypress
+	.ttyin
+	cmp	R0, #32.			; space?
+	beq	99$				; exit then
+	cmp	R0, #15				; enter?
+	beq	99$				; also exit
+
+	; set speed from key (last 5 bits)
+	bic	#^B1111111111100000, R0		; 0..31
+	add	#8., R0
+	asl	R0
+	mov	SpeedTable(R0), RawSpeed
+
+	; cycle to play 
+	br	10$
+
+99$:	; exiting, ask PPU to exit and wait
+	mov	#-1, PPcomm
+	tst	PPcomm
+	bne	.-4
 
 	; release PPU mem
 	call	PPRele
 
+	; clear screen again
+	call	ClearScreen
+
+Exit:	; eat typed characters, print CRLF and exit
+	emt	#340
+	bcc	.-2
+;	mov	#MsgCrLf, R0
+;	call	PrintString
 	.exit
 
-PPcomm:	.word	0	; CPU-PPU communication status word
+
+MsgHello:	.ascii	"Usage: TSTLPT FILE[.RAW]"<12><15>
+		.ascii	"Plays 8-bit unsigned raw file to covox on LPT port A"<12><15>
+		.ascii	"<Space>/<Enter> - exit, other keys - change playing speed"<12><15>
+		.asciz	"Press <Space> to start"<12><15>
+		.even
+
+MsgCrLf:	.byte	12, 15, 0
+		.even
+
+RawSpeed:	.word	50242
+RawLength:	.word	0
+
+SpeedTable:
+	.word	012533, 013240, 013770, 014545, 015350, 016202, 017064, 017777	; 8
+	.word	020746, 021753, 023015, 024121, 025266, 026501, 027761, 031313	; 16
+	.word	032721, 034404, 036150, 037777, 041715, 043726, 046033, 050242	; 24
+	.word	052555, 055202, 057743, 062627, 065642, 071010, 074320, 077777	; 32
+	.word	103633, 107654, 114067, 120504, 125333, 132404, 137707, 145457	; 40
+	.word	153504, 162021, 170640, 177777					; 44
+
 
 ; //////////////////////////////////////////////////////////////////////////////
 ; // Printing
@@ -62,9 +124,99 @@ PrintOctal:
 	sob	R3, 10$
 	return
 
+; clear screen
+ClearScreen:
+	mov	#MsgCls, R0			; clear screen with ESC codes
+	call	PrintString
+	; clear vram12
+	mov	#176640, R4
+	mov	#176642, R5
+	mov	#100000, R3
+	mov	R3, (R4)
+10$:	clr	(R5)
+	inc	(R4)
+	sob	R3, 10$
+	return
+
+
+; ///////////////////////////////////////////////////////////////
+; // File read 
+; ///////////////////////////////////////////////////////////////
+
+fDEXT:		.rad50	"RAW"
+		.word	0,0,0
+fBUFF:		.word	0
+fINBLK:		.word	0
+fCRC:		.word	0
+fAREA:		.blkw	5
+fADDR:		.blkw	6
+fDSPAC	=.	; here must be buffer for handlers but we haven't any i suppose
+
+MsgReadError:	.asciz	"ERROR: File read error"
+MsgFileIsBig:	.asciz	"ERROR: File is too big to fit in memory (127. blocks max)"
+		.even
+
+Buffer512:	.blkb	512.
+
+ReadFile:
+	mov	SP, R5		; save SP (maybe it's not needed)
+	.csige	#fDSPAC, #fDEXT
+	mov	R5, SP		; restore SP (that is written in RT-11 manual examples, so..)
+	; get file size 
+	mov	#3, R0		; CHANNEL #
+	mov	R0, R2		; @SP = CH
+	mov	@#54, R1	; R1 = RMON
+	cmp	(R1)+, (R1)+	; R1 = $CSW
+	asl	R2		; @SP = CH*2
+	add	R2, R1		; R1 = $CSW+CH*2
+	asl	R2		; @SP = CH*4
+	asl	R2		; @SP = CH*10
+	add	R2, R1		; R1 = $CSW+CH*12
+	mov	4(R1), R0	; R4 = file size in blocks
+	; check for 'out of memory'
+	cmp	R0, #127.	; 127. blocks max .raw file
+	blos	2$
+	mov	#MsgFileIsBig, R0
+	call	PrintString
+	br	99$
+2$:	; clear screen (we will read into vram12)
+	call	ClearScreen
+	; reading
+	clr	R4		; current block
+	mov	#100000, R5	; add in vram to read to
+10$:	.readw	#fAREA, #3, #Buffer512, #256., R4
+	bcc	20$
+	tstb	@#52		; EOF error ?
+	beq	40$
+	mov	#MsgReadError, R0
+	call	PrintString
+	br	99$
+20$: 	; copy buffer to screen vram
+	mov	#256., R3
+	mov	#Buffer512, R0
+30$:	mov	R5, @#176640
+	mov	(R0)+, @#176642
+	inc	R5
+	sob	R3, 30$
+	; inc block to read
+	inc	R4
+	; and loop until EOF
+	br	10$
+40$:	; TODO: need to get real file length (in bytes)
+	sub	#100000, R5
+	mov	R5, RawLength	; (!) length IN WORDS
+	.close	#3
+	return
+99$:	.close	#3
+	.exit
+
+
 ; //////////////////////////////////////////////////////////////////////////////
 ; // CPU -> PPU exchange	
 ; //////////////////////////////////////////////////////////////////////////////
+
+PPcomm:	.word	0	; CPU-PPU communication status word
+			; 0 - command finished or do nothing, 1 - CPU asks to play raw, <0 - CPU asks to exit
 
 ; PPU message
 ;
@@ -123,45 +275,62 @@ PPRele:	movb	#2, PPCmd	; 2 - release memory
 ; // PPU
 ; //////////////////////////////////////////////////////////////////////////////
 
-PPUSta:	mtps	#200
-	clr	R0
+PPUSta:	clr	R0			;
 	call	@7132(R0)		; stop FD
-
 	mov	#177, @#177103		; LPT all ports to output
 
-	mov	PC, R0			; R0 -> start sample addr
-	add	#SampleBegin-., R0
-	mov	PC, R3			; R3 -> end sample addr
-	add	#SampleEnd-., R3
-
-	mov	#16000, R4		; R4 -> play frequency
-	clr	R5
-
-10$:	movb	(R0), R2
-	com	R2
-	mov	R2, @#177100
-;	add	R4, R5
-;	adc	R0
-	inc	R0
-	.rept	20.
-	nop
-	.endr
-	cmp	R0, R3
-	blo	10$
-
-	; signal to CPU that we are finished
+10$:	; run PPU process dispatcher
+	trap	#0
+	; wait signal from CPU to play
 	mov	#PPcomm/2, @#177010
-	mov	#1, @#177014
+	mov	@#177014, R0
+	bmi	99$			; CPU asks for exit
+	beq	10$			; no command given
+	; any other - plays raw
+	call	PlayRaw
+	; command finished
+	mov	#PPcomm/2, @#177010
+	clr	@#177014
+	br	10$
 
-	mtps	#0
+99$:	; signal to CPU that we are finished
+	mov	#PPcomm/2, @#177010
+	clr	@#177014
 	return
 
-
-
-SampleBegin:
-	@includebin sound/sample16u.raw
-	.even
-SampleEnd:	
+; plays raw from vram12
+PlayRaw:	
+	; stop interrupts
+	mtps	#200
+	; set vaddr regs
+	mov	#177010, R4		; vaddr registers
+	mov	#177014, R5
+	; set playing speed
+	mov	#RawSpeed/2, (R4)
+	mov	(R5), 20$+2
+	mov	(R5), 30$+2
+	clr	20$+4			; not really needed
+	clr	30$+4			; but why not
+	; playing length IN WORDS (!)
+	mov	#RawLength/2, (R4)
+	mov	(R5), R3
+	; play cycle
+	mov	#100000, (R4)
+10$:	mov	(R5), R0		; get two bytes to play
+	com	R0			; inverse them
+	mov	R0, @#177100		; put lower byte -> LPT port A
+20$:	add	#000000, #000000	; speed delay
+	bcc	20$
+	nop				; TODO: better timings
+	inc	(R4)			; advance vaddr (put it here for better timings)
+	swab	R0			; high byte to low
+	mov	R0, @#177100		; lower byte -> LPT port A
+30$:	add	#000000, #000000	; speed delay
+	bcc	30$
+	sob	R3, 10$			; cycle
+	; allow interrupts
+	mtps	#0
+	return
 
 PPUEnd:
 
