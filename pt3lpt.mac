@@ -369,12 +369,17 @@ PPUExit:
 ; R1 = reg #
 ; R0 = data byte
 OutLptAy:
+	; test aberrant's
+	; mov	R1, (R2)
+	; movb	R0, (R2)
+	; return
+	; here is LPT version
 	com	R0			; inverse addr/data
 	com	R1
 	cmp	R2, #177362
 	beq	50$
 	; addr register
-	mov	#177777, @#177102	; BC1 BDIR = 0 - NACT bus
+	mov	#177777, @#177102	; BC1 BDIR = 0 - INACT bus
 	mov	R1, @#177101		; write reg addr
 	mov	#177774, @#177102	; COM #3 - BC1 BDIR = 1 - INTAK - latch addr
 	; data byte
