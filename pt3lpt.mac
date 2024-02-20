@@ -381,9 +381,10 @@ OutLptAy:
 	mov	#177777, @#177102	; BC1 BDIR = 0 - INACT bus
 	mov	R0, @#177101
 	mov	#177775, @#177102	; COM #2 - BC1=0 BDIR=1 - DWS write data
-	br	50$
+	br	99$
 50$:	; TODO: 2nd AY
-	com	R0			; inverse again to set them as they were
+	; ...
+99$:	com	R0			; inverse again to set them as they were
 	com	R1
 	return
 
