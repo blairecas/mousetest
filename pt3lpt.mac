@@ -369,10 +369,10 @@ PPUExit:
 ; R1 = reg #
 ; R0 = data byte
 OutLptAy:
-	cmp	R2, #177362
-	beq	50$
 	com	R0			; inverse addr/data
 	com	R1
+	cmp	R2, #177362
+	beq	50$
 	; addr register
 	mov	#177777, @#177102	; BC1 BDIR = 0 - NACT bus
 	mov	R1, @#177101		; write reg addr
@@ -381,7 +381,11 @@ OutLptAy:
 	mov	#177777, @#177102	; BC1 BDIR = 0 - INACT bus
 	mov	R0, @#177101
 	mov	#177775, @#177102	; COM #2 - BC1=0 BDIR=1 - DWS write data
-50$:	return
+	br	50$
+50$:	; TODO: 2nd AY
+	com	R0			; inverse again to set them as they were
+	com	R1
+	return
 
 ; PPU trap interrupt (just increase R1)
 TrapInt:
