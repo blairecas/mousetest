@@ -7,19 +7,29 @@
 Start:	mov	#1000, SP			; just in case
 	bis	#10000, @#44			; don't echo input keys
 
-	; prints hello message
+	; print hello message
 	mov	#MsgHello, R0
 	call	PrintString
 	.ttyin
 	cmp	R0, #32.
-	beq	Main
+	beq	RFile
+	cmp	R0, #'1
+	beq	SawTooth8
+	cmp	R0, #'2
+	beq	SawTooth6
 	jmp	Exit
 
-Main:	; read file
-	bic	#10000, @#44			; echo input keys
-	call	ReadFile			; read file (to vram12)
-	bis	#10000, @#44			; don't echo input keys
+RFile:
+	call	ReadFile
+	br	Main
+SawTooth8:
+	call	MakeSawtooth8
+	br	Main
+SawTooth6:
+	call	MakeSawtooth6
+	br	Main
 
+Main:
 	; start PPU code
 	mov	#PPUSta, R4
 	mov	#PPUEnd-PPUSta/2, R5
@@ -57,22 +67,29 @@ Main:	; read file
 	; clear screen again
 	call	ClearScreen
 
-Exit:	; eat typed characters, print CRLF and exit
+Exit:	; eat typed characters
 	emt	#340
 	bcc	.-2
-;	mov	#MsgCrLf, R0
-;	call	PrintString
+	; stop execution of chained command (if any)
+	mov	#1, @#510
+	clr	@#512
+	bis	#4000, @#44
+	clr	R0 	
 	.exit
 
 
-MsgHello:	.ascii	"Usage: TSTLPT FILE[.RAW]"<12><15>
-		.ascii	"Plays 8-bit unsigned raw file to covox on LPT port A"<12><15>
-		.ascii	"<Space>/<Enter> - exit, other keys - change playing speed"<12><15>
-		.asciz	"Press <Space> to start"<12><15>
-		.even
-
-MsgCrLf:	.byte	12, 15, 0
-		.even
+MsgHello:
+	.ascii	"Usage: TSTLPT FILE[.RAW]"<12><15>
+	.ascii	"Plays 8-bit unsigned raw file to covox on LPT port A (around 11kHz)"<12><15>
+	.ascii	"Press:"<12><15>
+	.ascii	" - <Space> play file, then <Space>/<Enter> - exit, other keys - change speed"<12><15>
+	.ascii	" - 1 - sawtooth 8-bit"<12><15>
+	.ascii	" - 2 - sawtooth 6-bit (upper bits)"<12><15>
+	.ascii	" - 3 - square wave 8-bit"<12><15>
+	.ascii	" - 4 - square wave 6-bit"<12><15>
+	.ascii	" - 5 - sine wave 8-bit"<12><15>
+	.asciz	" - 6 - sine wave 6-bit"<12><15>
+	.even
 
 RawSpeed:	.word	50242
 RawLength:	.word	0
@@ -129,8 +146,7 @@ ClearScreen:
 	mov	#MsgCls, R0			; clear screen with ESC codes
 	call	PrintString
 	; clear vram12
-	mov	#176640, R4
-	mov	#176642, R5
+	call	SetVreg
 	mov	#100000, R3
 	mov	R3, (R4)
 10$:	clr	(R5)
@@ -138,6 +154,11 @@ ClearScreen:
 	sob	R3, 10$
 	return
 
+; set R4,R5 registers on CPU vram addr/data
+SetVreg:
+	mov	#176640, R4
+	mov	#176642, R5
+	return
 
 ; ///////////////////////////////////////////////////////////////
 ; // File read 
@@ -159,9 +180,11 @@ MsgFileIsBig:	.asciz	"ERROR: File is too big to fit in memory (127. blocks max)"
 Buffer512:	.blkb	512.
 
 ReadFile:
-	mov	SP, R5		; save SP (maybe it's not needed)
+	bic	#10000, @#44	; echo input keys (in case of direct input)
+	mov	SP, R5		; save SP (.csigen changes it)
 	.csige	#fDSPAC, #fDEXT
 	mov	R5, SP		; restore SP (that is written in RT-11 manual examples, so..)
+	bis	#10000, @#44	; don't echo input keys
 	; get file size 
 	mov	#3, R0		; CHANNEL #
 	mov	R0, R2		; @SP = CH
@@ -208,8 +231,54 @@ ReadFile:
 	.close	#3
 	return
 99$:	.close	#3
-	.exit
+	jmp	Exit
 
+; //////////////////////////////////////////////////////////////////////////////
+; // Test cases
+; //////////////////////////////////////////////////////////////////////////////
+
+; put R1 -> byte to dest vaddr and advance it
+; (!) trashes R2
+; why I need THIS here? but ok, it's a part of code from another thing
+PutB12:	mov	(PC)+, R2
+PutA12:	.word	0			; vram addr rel to 200000
+	inc	PutA12
+	sec
+	ror	R2
+	bcs	10$
+	mov	R2, @#176640
+	movb	R1, @#176642
+	return
+10$:	mov	R2, @#176640
+	movb	R1, @#176643
+	return
+
+MakeSawtooth8:
+	call	ClearScreen
+	clr	PutA12
+	mov	#377, R1
+	mov	#177776, R3
+	mov	#177776/2, RawLength	; length in words!
+10$:	call	PutB12
+	dec	R1
+	sob	R3, 10$
+	return
+
+MakeSawtooth6:
+	call	ClearScreen
+	clr	PutA12
+	mov	#100, R0
+	mov	#177776, R3
+	mov	#177776/2, RawLength
+10$:	mov	R0, R1
+	asl	R1
+	asl	R1
+	call	PutB12
+	dec	R0
+	bpl	20$
+	mov	#100, R0
+20$:	sob	R3, 10$
+	return
 
 ; //////////////////////////////////////////////////////////////////////////////
 ; // CPU -> PPU exchange	
@@ -254,9 +323,9 @@ PPURun:	movb	#1, PPCmd	; 1 - allocate memory
 	call	PPSen
 	tstb	PPArr		; test if allocate success
 	beq	1$		; 0 - OK
-	mov	#MsgMem, R0
+	mov	#MsgMem, R0	; no memory string
 	call	PrintString
-	.exit			; fatal error - out of memory in PPU
+	jmp	Exit
 1$:	movb	#20, PPCmd	; 20 - write to PPU mem
 	mov	R5, PPLen
 	mov 	R4, PPAcp
@@ -299,7 +368,7 @@ PPUSta:	clr	R0			;
 	return
 
 ; plays raw from vram12
-PlayRaw:	
+PlayRaw:
 	; stop interrupts
 	mtps	#200
 	; set vaddr regs
@@ -329,6 +398,19 @@ PlayRaw:
 	bcc	30$
 	sob	R3, 10$			; cycle
 	; allow interrupts
+	mtps	#0
+	return
+
+; plays sawtooth
+PlaySawtooth:
+	mtps	#200	
+10$:	mov	#64., R0
+	mov	R0, R3
+	com	R0
+20$:	mov	R0, @#177100
+	inc	R0
+	sob	R3, 20$
+	br	10$
 	mtps	#0
 	return
 
