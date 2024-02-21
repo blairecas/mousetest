@@ -12,22 +12,30 @@ Start:	mov	#1000, SP			; just in case
 	call	PrintString
 	.ttyin
 	cmp	R0, #32.
-	beq	RFile
-	cmp	R0, #'1
-	beq	SawTooth8
-	cmp	R0, #'2
-	beq	SawTooth6
-	jmp	Exit
-
-RFile:
+	bne	10$
 	call	ReadFile
 	br	Main
-SawTooth8:
-	call	MakeSawtooth8
+10$:	cmp	R0, #'1
+	bne	20$
+	call	Sawtooth8
 	br	Main
-SawTooth6:
-	call	MakeSawtooth6
+20$:	cmp	R0, #'2
+	bne	30$
+	call	Sawtooth6
 	br	Main
+30$:	cmp	R0, #'3
+	bne	40$
+	call	SineWave8
+	br	Main
+40$:	cmp	R0, #'4
+	bne	50$
+	call	SineWave6
+	br	Main
+50$:	cmp	R0, #'5
+	bne	60$
+	call	SquareWave
+	br	Main
+60$:	jmp	Exit
 
 Main:
 	; start PPU code
@@ -85,10 +93,9 @@ MsgHello:
 	.ascii	" - <Space> play file, then <Space>/<Enter> - exit, other keys - change speed"<12><15>
 	.ascii	" - 1 - sawtooth 8-bit"<12><15>
 	.ascii	" - 2 - sawtooth 6-bit (upper bits)"<12><15>
-	.ascii	" - 3 - square wave 8-bit"<12><15>
-	.ascii	" - 4 - square wave 6-bit"<12><15>
-	.ascii	" - 5 - sine wave 8-bit"<12><15>
-	.asciz	" - 6 - sine wave 6-bit"<12><15>
+	.ascii	" - 3 - sine wave 8-bit"<12><15>
+	.ascii	" - 4 - sine wave 6-bit"<12><15>
+	.asciz	" - 5 - square wave"<12><15>
 	.even
 
 RawSpeed:	.word	50242
@@ -253,32 +260,55 @@ PutA12:	.word	0			; vram addr rel to 200000
 	movb	R1, @#176643
 	return
 
-MakeSawtooth8:
+TestPrepare:
 	call	ClearScreen
 	clr	PutA12
-	mov	#377, R1
 	mov	#177776, R3
 	mov	#177776/2, RawLength	; length in words!
+	return
+
+Sawtooth8:
+	call	TestPrepare
+	mov	#377, R1
 10$:	call	PutB12
 	dec	R1
 	sob	R3, 10$
 	return
 
-MakeSawtooth6:
-	call	ClearScreen
-	clr	PutA12
-	mov	#100, R0
-	mov	#177776, R3
-	mov	#177776/2, RawLength
+Sawtooth6:
+	call	TestPrepare
+	mov	#77, R0
 10$:	mov	R0, R1
 	asl	R1
 	asl	R1
 	call	PutB12
 	dec	R0
 	bpl	20$
-	mov	#100, R0
+	mov	#77, R0
 20$:	sob	R3, 10$
 	return
+
+SquareWave:
+	call	TestPrepare
+	clr	R0	
+10$:	bit	#400, R0
+	beq	20$
+	mov	#377, R1
+	br	30$
+20$:	clr	R1
+30$:	call	PutB12
+	inc	R0
+	sob	R3, 10$
+	return
+
+SineWave8:
+	call	TestPrepare
+	return
+
+SineWave6:
+	call	TestPrepare
+	return
+
 
 ; //////////////////////////////////////////////////////////////////////////////
 ; // CPU -> PPU exchange	
@@ -398,19 +428,6 @@ PlayRaw:
 	bcc	30$
 	sob	R3, 10$			; cycle
 	; allow interrupts
-	mtps	#0
-	return
-
-; plays sawtooth
-PlaySawtooth:
-	mtps	#200	
-10$:	mov	#64., R0
-	mov	R0, R3
-	com	R0
-20$:	mov	R0, @#177100
-	inc	R0
-	sob	R3, 20$
-	br	10$
 	mtps	#0
 	return
 
