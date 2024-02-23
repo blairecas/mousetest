@@ -76,16 +76,23 @@ PPUMain:
 	; test for VM2 bug (are we on emulator?)
 	; speed of playing on UKNCBTL must be lower than actial hardware
 	; PPU on UKNCBTL is faster than real device
+	; code from Alex_K
 	clr	R1
-	mov	(PC), R0
-	inc	R1
-	inc	R1
-	cmp	R1, #3
-	bne	20$			; we are on emulator
+	mov	#10., R2		; 10 times testing
+1$:	nop				; don't know why it's here
+	mov	(PC), R0		; must screw command preload
+  	inc	R1			; will do 2 times on real VM2?
+  	br	.+2			; reset bug with 3 times of branches
+  	br	.+2
+	br	.+2	
+	sob	R2, 1$
+	cmp	R1, #10.
+	beq	20$			; we are on emulator
 	mov	#240, 40$		; nop opcode - we are on real VM2 CPU
+	; not enough - must go with something better like change 30$ to add R0, #000000 maybe and nop nop
 20$:	; test ends
 
-	; Manwe's code is here
+	; Manwe's BK-0010-01 code is here
 1000$:	mov	#60602, R0
 	br	1072$
 1006$:	mov	#1577, R0
@@ -97,7 +104,7 @@ PPUMain:
 	movb	(R4), R2
 	add	R2, R1
 	mov	R1, @#177100		; already inverted in BK? well done
-30$:	add	#60000, #000000		; adjust speed of playing for UKNCBTL and real device
+30$:	add	#64000, #000000		; adjust speed of playing for UKNCBTL and real device
 40$:	bcc	30$
 	sob	R0, 1012$
 1046$:	mov	(R5)+, R3
@@ -116,7 +123,7 @@ PPUMain:
 ; helper for int addrs
 RtiAdr:	rti
 
-; // tracker file and instr
+; // tracker data and instruments
 .=4000
 @includebin sound/covox.dat
 
