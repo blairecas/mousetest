@@ -75,14 +75,14 @@ PPUMain:
 
 	; test for VM2 bug (are we on emulator?)
 	; speed of playing on UKNCBTL must be lower than actial hardware
-	; PPU on it slight faster
+	; PPU on UKNCBTL is faster than real device
 	clr	R1
 	mov	(PC), R0
 	inc	R1
 	inc	R1
 	cmp	R1, #3
 	bne	20$			; we are on emulator
-	mov	#240, 40$		; nop opcode
+	mov	#240, 40$		; nop opcode - we are on real VM2 CPU
 20$:	; test ends
 
 	; Manwe's code is here
