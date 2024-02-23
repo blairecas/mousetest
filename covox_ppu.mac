@@ -71,8 +71,19 @@ VLinesBegin:				; GRB by default
 ; /////////////////////////////////////////////////////////////////////
 
 PPUMain:
-	mov	#1000, SP		; stack is 540..1000
-	mtps	#200			; no interrupts
+	mov	#177, @#177103		; all LPT ports to output
+
+	; test for VM2 bug (are we on emulator?)
+	; speed of playing on UKNCBTL must be lower than actial hardware
+	; PPU on it slight faster
+	clr	R1
+	mov	(PC), R0
+	inc	R1
+	inc	R1
+	cmp	R1, #3
+	bne	20$			; we are on emulator
+	mov	#240, 40$		; nop opcode
+20$:	; test ends
 
 	; Manwe's code is here
 1000$:	mov	#60602, R0
@@ -86,12 +97,8 @@ PPUMain:
 	movb	(R4), R2
 	add	R2, R1
 	mov	R1, @#177100		; already inverted in BK? well done
-	nop
-	nop
-	nop
-	nop
-	nop
-	nop
+30$:	add	#60000, #000000		; adjust speed of playing for UKNCBTL and real device
+40$:	bcc	30$
 	sob	R0, 1012$
 1046$:	mov	(R5)+, R3
 	beq	1066$
@@ -105,7 +112,7 @@ PPUMain:
 	mov	R0, 1066$+2
 	br	1046$
 	; and that's all
-	
+
 ; helper for int addrs
 RtiAdr:	rti
 
