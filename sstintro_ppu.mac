@@ -1,0 +1,137 @@
+	.title	PPU
+	.enabl	LC,AMA	; local labels, absolute addr mode
+	.list	MEB	; enable macro-extensions binary listing
+	.asect
+	.=0	; from address 0 (!)
+
+; /////////////////////////////////////////////////////////////////////
+; // PPU header for .=0
+; /////////////////////////////////////////////////////////////////////
+
+; 000000 - PPU RAM start
+	.word	000207, 000, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200	; 000000-000040
+	.word	RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200	; 000040-000100
+	.word	RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200	; 000100-000140
+	.word	RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200	; 000140-000200
+	.word	RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200	; 000200-000240
+	.word	RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, 000000,1016, RTIADR, 200	; 000240-000300
+	.word	RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200	; 000300-000340
+	.word	RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200	; 000340-000400
+	.word	RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200	; 000400-000440
+	.word	RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200	; 000440-000500
+	.word	RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200, RTIADR, 200	; 000500-000540
+; 000540 - stack bottom
+	.word	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0	; 000540-000600
+	.word	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0	; 000600-000640
+	.word	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0	; 000640-000700
+	.word	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0	; 000700-000740
+	.word	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0	; 000740-001000
+
+; 001000
+Start:	mtps	#200			; 001000-001004
+	jmp	PPUMain			; 001004-001010
+
+; 001010 - lines table begin
+VLinesBegin:				; GRB by default
+	.word	^B1101110010011000	; 001010 YRGB for 011 010 001 000
+	.word	^B1111111010111010	; 001012 YRGB for 111 110 101 100
+	.word	0, 1022			; 001014
+	.word	^B0000000000010000	; 001020 no cursor
+	.word	^B0000000000010111	; 001022 320x288, max luminance (..000111-640 ..010111-320 ..100111-160 ..110111-80)
+	.word	0, 1030			; 001024
+	.word	0, 1034, 0, 1040, 0, 1044, 0, 1050	; 001030 16 unused lines
+	.word	0, 1054, 0, 1060, 0, 1064, 0, 1070	; 001050
+	.word	0, 1074, 0, 1100, 0, 1104, 0, 1110	; 001070
+	.word	0, 1114, 0, 1120, 0, 1124, 0, 1130	; 001110
+; 001130 - 288 lines table
+	.word	100000,1130
+	; no lines table guys, was ate by hamster :)
+
+; /////////////////////////////////////////////////////////////////////
+; // PPU Main code
+; /////////////////////////////////////////////////////////////////////
+
+; helper for int addrs
+RtiAdr:	rti
+
+PPUMain:
+	mov	#177, @#177103		; all LPT ports to output
+
+	; test for VM2 bug (are we on emulator?)
+	; speed of playing on UKNCBTL must be lower than actial hardware
+	; PPU on UKNCBTL is faster than real device
+	; code from Alex_K
+	clr	R1
+	mov	#10., R2		; 10 times testing
+1$:	nop				; don't know why it's here
+	mov	(PC), R0		; must screw command preload
+  	inc	R1			; will do 2 times on real VM2?
+  	br	.+2			; reset bug with 3 times of branches
+  	br	.+2
+	br	.+2	
+	sob	R2, 1$
+	cmp	R1, #10.
+	beq	20$			; we are on emulator
+	; adjust speed delay for playing on real device
+	mov	#403, 30$		; opcodes - br .+10
+	mov	#240, 30$+6		; opcodes - nop
+20$:	; test ends
+
+	; set stack as in Manwe's demo (maybe not needed all that 4 words, but just in case)
+	mov	#770, SP
+	mov	#000000, (SP)+
+	mov	#001006, (SP)+
+	mov	#036502, (SP)+
+	mov	#1000, (SP)
+
+; Manwe's BK-0010-01 code is here
+1400$:	mov	#SongStart+1602-1550, R0
+	mov	R0, 1526$+2		; mov R0, @#1530
+	mov	-(R0), R0
+	br	1456$
+; mixing routine
+1414$:	add	#100000, #100000
+	adc	R3
+1424$:	add	#100000, #100000
+	adc	R4
+1434$:	halt				; command will be injected here (code injection!)
+	movb	(R4), R2
+	add	R2, R1
+	movb	(R3), R2
+	add	R2, R1
+	mov	R1, @#177100		; LPT port A
+	; 
+30$:	add	#72000, #000000		; adjust speed of playing for UKNCBTL
+	bcc	30$
+	;
+	sob	R0, 1414$
+; mixing ends
+	mov	(SP)+, R0
+1456$:	mov	(R0)+, 1434$
+	beq	1526$
+	mov	(R0)+, R1
+	beq	1476$
+	mov	R1, R3
+	mov	(R0)+, 1414$+2		; mov R0, @#1416
+1476$:	mov	(R0)+, R1
+	beq	1510$
+	mov	R1, R4
+	mov	(R0)+, 1424$+2		; mov R0, @#1426
+1510$:	mov	(R0)+, R1
+	beq	1516$
+	mov	R1, R5
+1516$:	mov	R0, -(SP)
+	mov	#3100, R0		; notes length
+	br	1414$
+1526$:	mov	SongStart+1644-1550, R0
+	beq	1400$
+	add	#2, 1526$+2		; add #2, @#1530
+	br	1456$
+	; and that's all
+
+.=1550
+SongStart:
+@includebin sound/sstintro.dat
+
+	.end	Start
+	

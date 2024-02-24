@@ -107,8 +107,10 @@ PPUMain:
 	movb	(R4), R2
 	add	R2, R1
 	mov	R1, @#177100		; already inverted in BK? well done
+	; 
 30$:	add	#72000, #000000		; adjust speed of playing for UKNCBTL
 	bcc	30$
+	;
 	sob	R0, 1012$
 1046$:	mov	(R5)+, R3
 	beq	1066$
