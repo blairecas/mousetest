@@ -74,7 +74,7 @@ PPUMain:
 	beq	20$			; we are on emulator
 	; adjust speed delay for playing on real device
 	mov	#403, 30$		; opcodes - br .+10
-	mov	#240, 30$+6		; opcodes - nop
+	; mov	#240, 30$+6		; opcodes - nop
 20$:	; test ends
 
 	; set stack as in Manwe's demo (maybe not needed all that 4 words, but just in case)
