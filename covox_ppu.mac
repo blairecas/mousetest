@@ -88,8 +88,11 @@ PPUMain:
 	sob	R2, 1$
 	cmp	R1, #10.
 	beq	20$			; we are on emulator
-	mov	#240, 40$		; nop opcode - we are on real VM2 CPU
-	; not enough - must go with something better like change 30$ to add R0, #000000 maybe and nop nop
+	; adjust speed delay for playing on real device
+	mov	#240, 30$		; nop opcode
+	mov	#240, 30$+2
+	mov	#240, 30$+4
+	mov	#240, 30$+6
 20$:	; test ends
 
 	; Manwe's BK-0010-01 code is here
@@ -104,8 +107,8 @@ PPUMain:
 	movb	(R4), R2
 	add	R2, R1
 	mov	R1, @#177100		; already inverted in BK? well done
-30$:	add	#64000, #000000		; adjust speed of playing for UKNCBTL and real device
-40$:	bcc	30$
+30$:	add	#72000, #000000		; adjust speed of playing for UKNCBTL
+	bcc	30$
 	sob	R0, 1012$
 1046$:	mov	(R5)+, R3
 	beq	1066$
