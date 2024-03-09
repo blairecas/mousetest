@@ -1,0 +1,62 @@
+	.mcall	.exit
+	.enabl	LC
+	.list	MEB
+	.asect
+	.=1000
+
+Start:
+	; map PPU RAM0 to PPU addr 100000-...
+	movb	#20, PPCmd	; 20 - write to PPU mem
+	mov	#1, PPLen	; length in words
+	mov 	#Data1, PPAcp	; data addr in CPU
+	mov	#177054, PPApp	; data addr in PPU
+	call	PPSen		; call 'write data'
+
+	; fill PPU RAM with 010101010.. (fill plane 0)
+	mov	#100000, R5
+	mov	#20000, R3
+	mov	#Data2, PPAcp
+10$:	mov	R5, PPApp
+	call	PPSen
+	add	#2, R5
+	sob	R3, 10$
+
+	.exit
+
+Data1:	.word	361
+Data2:	.word	^B1010101010101010
+
+; //////////////////////////////////////////////////////////////////////////////
+; // CPU -> PPU exchange	
+; //////////////////////////////////////////////////////////////////////////////
+
+; PPU message
+;
+PPmsg:	.word	PPArr	; address of beginning of array
+        .word	177777	; end of transmission
+
+; PPU data exchange array
+;
+PPArr:	.byte	0	; return value (0 - OK)
+PPCmd:	.byte	0	; command
+	.word	32	; device type (32 - PPU mem)
+PPApp:	.word	0	; address for PPU
+PPAcp:	.word	0	; address for CPU
+PPLen:	.word	0	; length in words
+
+; send command to PPU with exch array
+PPSen:	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	#PPMsg, R0	; array address
+	mov	#5, R1		; bytes to send+1 (sending from @#PP_MSG)
+	br	1$
+2$:	movb	(R0)+, @#176676
+1$:	tstb	@#176674	; test if we are ready to send
+	bpl	1$		; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 2$
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	return
+
+
+	.end	Start
