@@ -1,5 +1,5 @@
 	.title	PPT3
-	.mcall	.print .exit .setto .csige .cstat .readw .close
+	.mcall	.print .ttout .exit .setto .csige .cstat .readw .close
 	.enabl	LC
 	.list	MEB
 
@@ -7,13 +7,13 @@
 	.asect
 	.=1000
 
-; Для переноса этого хозяйства куда-нибудь еще (на Неон например, вдруг ВИ-53 людям мало там станет):
-; Основной код плеера от kuvo внизу (PT3 routines), расчитано на наличие 2-х AY-шек
-; Адрес файла .pt3 в самом низу (куда его надо считать)
-; Адрес последнего байта + 1 считанного файла поместить в PT3FILE_END_ADDR
-; Процедура которая кидает байты на AY-ки - REG_OUT: - поменять на своё
-; Внимание! R13 в AY нельзя копировать если там байт < 0
-; После считывания файла вызвать Init один раз, затем Play каждый фрейм (50Гц) ожидая END_OF_PT3FILE!=0, затем Mute 
+; пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ-пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ (пїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅ пїЅпїЅ-53 пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ):
+; пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ kuvo пїЅпїЅпїЅпїЅпїЅ (PT3 routines), пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ 2-пїЅ AY-пїЅпїЅпїЅ
+; пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ .pt3 пїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ (пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ)
+; пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ + 1 пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ PT3FILE_END_ADDR
+; пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅ AY-пїЅпїЅ - REG_OUT: - пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅ
+; пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ! R13 пїЅ AY пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅ < 0
+; пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ Init пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅ Play пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ (50пїЅпїЅ) пїЅпїЅпїЅпїЅпїЅпїЅ END_OF_PT3FILE!=0, пїЅпїЅпїЅпїЅпїЅ Mute 
 
 Start:	; init mem and read file
 	call	GetAllMem			; get all memory (up to USR)
@@ -126,6 +126,8 @@ PlayPt3:
 
 ; // File read //////////////////////////////////////////////////
 
+fStrBuf:	.blkb	82.
+
 fDSPAC	= END_OF_PROGRAM	; .csigen device handler buffer
 fDEXT:		.rad50	"PT3"	; default inpu extension
 		.word	0,0,0	; default output extensions
@@ -140,9 +142,11 @@ MsgNoChannel:	.asciz	"ERROR: Unable to open file channel #3"
 ReadFile:
 	; open file
 	mov	SP, R5				; save SP before .csigen (will change it)
-	.csige	#fDSPAC, #fDEXT			; load handler, open file channel from user input
-	mov	R5, SP				; restore SP
+	.csige	#fDSPAC, #fDEXT, , #fStrBuf	; load handler, open file channel from user input
+	mov	R5, SP				; restore SP	
 	mov	R0, PT3FILE_MODULE1_ADDR	; adjust .pt3 file starting addr if .csige loaded device handler
+	; print csi string
+	.print	#fStrBuf
 	; get file size and check for overflow
 	.cstat	#fAREA, #3, #fCSTAT		; get channel info
 	bcc	10$
@@ -171,10 +175,28 @@ ReadFile:
 	beq	.-2
 	inc	R4				; addr AFTER last byte
 	mov	R4, PT3FILE_END_ADDR
+	call	OutHeaderInfo
 	return
 99$:	clr	R0				; perform .hreset before .exit
 	.exit
 
+; Out vortex|protracker header string, must eliminate consecutive spaces
+OutHeaderInfo:
+	mov	PT3FILE_MODULE1_ADDR, R1	; header addr
+	clr	R2				; spaces length
+	mov	#99., R3			; header max length
+10$:	movb	(R1)+, R0			; get character
+	beq	90$				; abort if zero
+	inc	R2				; increase spaces length
+	cmpb	R0, #40				; is it a space?
+	beq	30$
+	clr	R2				; not a space - clear spaces length
+30$:	cmp	R2, #1				; spaces more than 1?
+	bhi	40$				; if more - not printing character
+	.ttout
+40$:	sob	R3, 10$
+90$:	.print	#fDEXT+2			; print zero-length string for CRLF
+	return
 
 ; //////////////////////////////////////////////////////////////////////////////
 ; // CPU -> PPU exchange	
