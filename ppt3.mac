@@ -43,13 +43,8 @@ Start:	; init mem and read file
 MsgNoAy:	.asciz	"ERROR: No AY device detected on PPU @#177360"
 		.even
 
-; it's for debug purposes (aligned and with 0-es above and under)
-.=.+32.
-.=.&^B1111111111110000
 ; last two bytes aren't R14 R15 but AY UKNC device addr
 PpuAyRegisters:	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-.=.+16.
-.=.&^B1111111111110000
 
 ; // Memory ////////////////////////////////////////////////////
 
@@ -62,7 +57,7 @@ MsgNoMemory:	.asciz	"ERROR: Can't allocate memory up to 100000"
 ; code from Alex_K
 GetAllMem:
 	mov	@#54, R0			; addr of RMON
-	mov	266(R0), R0			; addr of USR? (in case of set USR NOSWAP)
+	mov	266(R0), R0			; addr of USR? (in case of set USR SWAP)
 	tst	-(R0)				; -2 bytes
 	.setto
 	bcc	10$
