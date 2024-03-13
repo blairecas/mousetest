@@ -1,10 +1,12 @@
 	.title	PPT3
-	.mcall	.print .exit .setto .csige .readw .close
+	.mcall	.print .exit .setto .csige .cstat .readw .close
 	.enabl	LC
 	.list	MEB
-	.asect
 
-;
+	; remove this for normal linker
+	.asect
+	.=1000
+
 ; Для переноса этого хозяйства куда-нибудь еще (на Неон например, вдруг ВИ-53 людям мало там станет):
 ; Основной код плеера от kuvo внизу (PT3 routines), расчитано на наличие 2-х AY-шек
 ; Адрес файла .pt3 в самом низу (куда его надо считать)
@@ -12,10 +14,8 @@
 ; Процедура которая кидает байты на AY-ки - REG_OUT: - поменять на своё
 ; Внимание! R13 в AY нельзя копировать если там байт < 0
 ; После считывания файла вызвать Init один раз, затем Play каждый фрейм (50Гц) ожидая END_OF_PT3FILE!=0, затем Mute 
-;
 
-.=1000
-Start:	mov	#1000, SP			; for what? (just in case)
+Start:	; init mem and read file
 	call	GetAllMem			; get all memory (up to USR)
 	call	ReadFile			; read file 
 
@@ -23,24 +23,29 @@ Start:	mov	#1000, SP			; for what? (just in case)
 	mov	#PPUSta, R4		; run PPU code
 	mov	#<PPUEnd-PPUSta>/2, R5
 	call	PPURun
+
 	; wait for PPU code be in a working order
 	tst	PpuComm
 	bne	.-4
+
 	; check for AY presence
 	tst	PpuNoAy
 	beq	10$
 	.print	#MsgNoAy
-	br	CpuExit
+	br	99$
 
 10$:	call	PlayPt3
 
-CpuExit:
-	; ask PPU for exit
+99$:	; ask PPU for exit
 	mov	#-1, PpuComm
 	tst	PpuComm
 	bne	.-4
-	; exit
+
+	; release PPU memory
 	call	PPRele
+
+	; .hreset before .exit
+	clr	R0
 	.exit
 
 MsgNoAy:	.asciz	"ERROR: No AY device detected on PPU @#177360"
@@ -56,32 +61,27 @@ PpuAyRegisters:	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 ; // Memory ////////////////////////////////////////////////////
 
-RamTop:		.word	0			; top byte of available RAM
-RamLast512:	.word	0			; -512. of above for file reading check size
+RamTop:		.word	0			; top addr of available RAM
 
-MsgSettopFailed:
-	.asciz	"ERROR: Can't use all memory (.settop failed)"
-MsgNoMemory:
-	.asciz	"ERROR: Can't allocate memory up to 100000"
-	.even 
+MsgSettop:	.asciz	"ERROR: Can't use all memory (.settop failed)"
+MsgNoMemory:	.asciz	"ERROR: Can't allocate memory up to 100000"
+		.even 
 
 ; code from Alex_K
 GetAllMem:
 	mov	@#54, R0			; addr of RMON
-	mov	266(R0), R0			; addr of USR? (in case of set USR SWAP)
+	mov	266(R0), R0			; addr of USR? (in case of set USR NOSWAP)
 	tst	-(R0)				; -2 bytes
 	.setto
 	bcc	10$
-	.print	#MsgSettopFailed
+	.print	#MsgSettop
 	.exit
 10$:	mov	R0, RamTop
 	cmp	R0, #100000			; at least top must be 100000 (i want so :)
 	bhis	20$
 	.print	#MsgNoMemory
 	.exit
-20$:	sub	#512., R0			; this is for file read checking out of mem
-	mov	R0, RamLast512
-	; and clear memory to top from AY params
+20$:	; and clear memory to top from AY params (we don't need it though)
 	mov	#PARAM_DEVICES_AY1, R0
 	mov	RamTop, R3
 	sub	R0, R3
@@ -91,7 +91,6 @@ GetAllMem:
 
 ; // Vsync /////////////////////////////////////////////////////
 
-Old100Int:	.word	0
 VSyncCount:	.word	0
 
 VSyncInt:
@@ -103,10 +102,8 @@ VSyncInt:
 ; play PT3 cycle
 PlayPt3:
 	; save vsync int addr and set a new one
-	mtps	#200
-	mov	@#100, Old100Int
+	mov	@#100, -(SP)
 	mov	#VSyncInt, @#100
-	mtps	#0
 
 	call	Init
 10$:	tst	VSyncCount			; awaiting vsync
@@ -123,71 +120,59 @@ PlayPt3:
 
 90$:	; mute two (! UKNC has three !) AY devices
 	call	Mute
-	; restore vsync int
-	mtps	#200
-	mov	Old100Int, @#100
-	mtps	#0
+	; restore vsync int and return
+	mov	(SP)+, @#100
 	return
 
 ; // File read //////////////////////////////////////////////////
 
-; code from Max (with some changes)
-; https://forum.maxiol.com/index.php?showtopic=5579
-
-fDEXT:		.rad50	"PT3"
-		.word	0,0,0
-fBUFF:		.word	0
-fINBLK:		.word	0
-fCRC:		.word	0
-fAREA:		.blkw	5
-fADDR:		.blkw	6
-fDSPAC	=.	; here must be buffer for handlers but we haven't any i suppose
+fDSPAC	= END_OF_PROGRAM	; .csigen device handler buffer
+fDEXT:		.rad50	"PT3"	; default inpu extension
+		.word	0,0,0	; default output extensions
+fAREA:		.blkw	5	; parameters buffer for .readw macro
+fCSTAT:		.blkw	6	; channel status info buffer
 
 MsgReadError:	.asciz	"ERROR: File read error"
 MsgFileIsBig:	.asciz	"ERROR: File is too big to fit in memory"
+MsgNoChannel:	.asciz	"ERROR: Unable to open file channel #3"
 		.even
 
 ReadFile:
-	mov	SP, R5		; save SP (maybe it's not needed)
-	.csige	#fDSPAC, #fDEXT
-	mov	R5, SP		; restore SP (that is written in RT-11 manual examples, so..)
-	; get file size 
-	mov	#3, R0		; CHANNEL #
-	mov	R0, R2		; @SP = CH
-	mov	@#54, R1	; R1 = RMON
-	cmp	(R1)+, (R1)+	; R1 = $CSW
-	asl	R2		; @SP = CH*2
-	add	R2, R1		; R1 = $CSW+CH*2
-	asl	R2		; @SP = CH*4
-	asl	R2		; @SP = CH*10
-	add	R2, R1		; R1 = $CSW+CH*12
-	mov	4(R1), R4	; R4 = file size in blocks
-	; check for 'out of memory'
-	swab	R4		; *256.
-	clrb	R4		; not needed much but ok
-	mov	R4, R5		; R5 - file size in words 
-	asl	R4		; R4 - file size in bytes
-	add	#PT3FILE, R4
+	; open file
+	mov	SP, R5				; save SP before .csigen (will change it)
+	.csige	#fDSPAC, #fDEXT			; load handler, open file channel from user input
+	mov	R5, SP				; restore SP
+	mov	R0, PT3FILE_MODULE1_ADDR	; adjust .pt3 file starting addr if .csige loaded device handler
+	; get file size and check for overflow
+	.cstat	#fAREA, #3, #fCSTAT		; get channel info
+	bcc	10$
+	.print	MsgNoChannel
+	br	99$
+10$:	mov	fCSTAT+4, R4			; file size in blocks
+	swab	R4				; file size in words
+	clrb	R4
+	mov	R4, R5				; R5 = file size in words
+	asl	R4				; R4 = file size in bytes
+	add	PT3FILE_MODULE1_ADDR, R4	; check for overflow
 	cmp	R4, RamTop
-	blo	10$
+	blo	20$
 	.print	#MsgFileIsBig
 	br	99$
 	; reading
-10$:	.readw	#fAREA, #3, #PT3FILE, R5, #0
-	bcc	20$
-	tstb	@#52		; EOF error ?
-	beq	20$
+20$:	.readw	#fAREA, #3, PT3FILE_MODULE1_ADDR, R5, #0
+	bcc	30$
+	tstb	@#52				; EOF error ?
+	beq	30$
 	.print	#MsgReadError
 	br	99$
-20$:	.close	#3
+30$:	.close	#3
 	; now must get real file size (need this for TS detection in player)
 	tstb	-(R4)
 	beq	.-2
-	inc	R4		; addr AFTER last byte
+	inc	R4				; addr AFTER last byte
 	mov	R4, PT3FILE_END_ADDR
 	return
-	; close input channel (it's #3, output channel is #0)
-99$:	.close	#3
+99$:	clr	R0				; perform .hreset before .exit
 	.exit
 
 
@@ -261,20 +246,6 @@ PPUSta:
 	clr	R0
 	call	@7132(R0)		; stop FD motor
 
-; I don't need this here, it's only for resident PPU code, this code isn't resident
-;	; damn that hacks - need to correct memory descriptors
-;	mov	PC, R0
-;	add	#PpuSta-., R0		; start of program
-;	mov	#PpuEnd-PpuSta, -(R0)	; write length of current PPU code block
-;	sub	#4, R0			; addr of our descriptor
-;	mov	PC, R1
-;	add	#PpuEnd-., R1		; end of program
-;	mov	#77772, R2
-;	sub	R1, R2			; length of free block (assume our program is last though it's incorrect)
-;	clr	(R1)+			; 'free'
-;	mov	R0, (R1)+		; addr of previous descriptor
-;	mov	R2, (R1)+		; length of free mem
-
 	; check AY presence
 	mov	@#4, -(SP)		; save trap int addr (todo: save psw?)
 	mov	PC, R0			; new trap int addr
@@ -312,8 +283,8 @@ PPUMain:
 	tst	PpuNoAy
 	bne	90$
 
-	mov	#177010, R4		; CPU addr reg
-	mov	#177014, R5		; CPU data reg
+	mov	#177010, R4		; RAM12 addr reg
+	mov	#177014, R5		; RAM12 data reg
 
 	; set port number
 	mov	#PpuAyRegisters/2+7, (R4)
@@ -516,7 +487,7 @@ INTEGRATION_POINTS:
 	PARAMETERS_AY2_ADDR:	.word PARAMETERS_AY2 			;+16 Address of the operating parameters of AY2
 	AYREGS_AY1:		.word PARAMETERS_AY1 + PARAM_AYREGS	;+20 Address of last sent AY1 register values
 	AYREGS_AY2:		.word PARAMETERS_AY2 + PARAM_AYREGS	;+22 Address of last sent AY2 register values
-	PT3FILE_MODULE1_ADDR:	.word PT3FILE 				;+24 PT3 file address
+	PT3FILE_MODULE1_ADDR:	.word END_OF_PROGRAM			;+24 PT3 file address
 	PT3FILE_MODULE2_ADDR:	.word 0 				;+26 Address of module 2 (TS) in PT3 file
 	PT3FILE_END_ADDR:	.word 0 				;+30 Address of end PT3 file
 	END_OF_PT3FILE:		.word 0 				;+32 CODA. End of PT3 file reached (incremented by one each time)
@@ -542,8 +513,6 @@ Init:
 	clr	END_OF_PT3FILE
 	clr	PT3FILE_MODULE2_ADDR
 	clr	REPETITION_NUMBER
-	; this will be detected after file read
-	; mov	#PT3FILE_END, PT3FILE_END_ADDR
 
 	mov	#PARAM_DEVICES_AY1, R3
 	clr	(R3)+				; legacy (not needed)	
@@ -1364,92 +1333,6 @@ FILL:	mov	R0, CHP_NOTE_SKIP_COUNTER(R4)
 
 TABLES:
 
-;TAB_C_OLD_0:
-; 	.byte	^x00 + 1, ^x04 + 1, ^x08 + 1, ^x0A + 1, ^x0C + 1, ^x0E + 1, ^x12 + 1, ^x14 + 1
-; 	.byte	^x18 + 1, ^x24 + 1, ^x3C + 1, 0
-;TAB_C_NEW_1:
-;TAB_C_OLD_1:
-; 	.byte	^x5C + 1, 0
-;TAB_C_OLD_2:
-;	.byte	^x30 + 1, ^x36 + 1, ^x4C + 1, ^x52 + 1, ^x5E + 1, ^x70 + 1, ^x82, ^x8C
-; 	.byte	^x9C, ^x9E, ^xA0, ^xA6, ^xA8, ^xAA, ^xAC, ^xAE, ^xAE, 0
-;
-;TAB_C_NEW_3:
-;	.byte	^x56 + 1
-;TAB_C_OLD_3:
-;	.byte	^x1E + 1, ^x22 + 1, ^x24 + 1, ^x28 + 1, ^x2C + 1, ^x2E + 1, ^x32 + 1, ^xBE + 1, 0
-;
-;TAB_C_NEW_0:
-; 	.byte	^x1C + 1, ^x20 + 1, ^x22 + 1, ^x26 + 1, ^x2A + 1, ^x2C + 1, ^x30 + 1, ^x54 + 1
-;	.byte	^xBC + 1, ^xBE + 1, 0
-;
-;TAB_C_NEW_2:
-;	.byte	^x1A + 1, ^x20 + 1, ^x24 + 1, ^x28 + 1, ^x2A + 1, ^x3A + 1, ^x4C + 1, ^x5E + 1
-;	.byte	^xBA + 1, ^xBC + 1, ^xBE + 1, 0
-;
-;EMPTY_SAM_ORN: 
-;	.byte	0, 1, 0, ^x90, 0, 0 
-;	.even
-;EMPTY_SAM_ORN_END:
-;
-;TABLES_PACK:
-; 	.word	^x06EC
-;	.byte	^x0755-^x06EC
-;	.byte	^x07C5-^x0755
-;	.byte	^x083B-^x07C5
-;	.byte	^x08B8-^x083B
-;	.byte	^x093D-^x08B8
-;	.byte	^x09CA-^x093D
-;	.byte	^x0A5F-^x09CA
-;	.byte	^x0AFC-^x0A5F
-;	.byte	^x0BA4-^x0AFC
-;	.byte	^x0C55-^x0BA4
-;	.byte	^x0D10-^x0C55
-;	.byte	13.   
-;	.even
-;	.word	^x066D
-;	.byte	^x06CF-^x066D
-;	.byte	^x0737-^x06CF
-;	.byte	^x07A4-^x0737
-;	.byte	^x0819-^x07A4
-;	.byte	^x0894-^x0819
-;	.byte	^x0917-^x0894
-;	.byte	^x09A1-^x0917
-;	.byte	^x0A33-^x09A1
-;	.byte	^x0ACF-^x0A33
-;	.byte	^x0B73-^x0ACF
-;	.byte	^x0C22-^x0B73
-;	.byte	^x0CDA-^x0C22
-;	.byte	12.   
-;	.even
-;	.word	^x0704
-;	.byte	^x076E-^x0704
-;	.byte	^x07E0-^x076E
-;	.byte	^x0858-^x07E0
-;	.byte	^x08D6-^x0858
-;	.byte	^x095C-^x08D6
-;	.byte	^x09EC-^x095C
-;	.byte	^x0A82-^x09EC
-;	.byte	^x0B22-^x0A82
-;	.byte	^x0BCC-^x0B22
-;	.byte	^x0C80-^x0BCC
-;	.byte	^x0D3E-^x0C80
-;	.byte	12.   
-;	.even
-;	.word	^x07E0
-;	.byte	^x0858-^x07E0
-;	.byte	^x08E0-^x0858
-;	.byte	^x0960-^x08E0
-;	.byte	^x09F0-^x0960
-;	.byte	^x0A88-^x09F0
-;	.byte	^x0B28-^x0A88
-;	.byte	^x0BD8-^x0B28
-;	.byte	^x0C80-^x0BD8
-;	.byte	^x0D60-^x0C80
-;	.byte	^x0E10-^x0D60
-;	.byte	^x0EF8-^x0E10
-;	.even
-
 TAB_C_OLD_0:
  	.byte	0 + 1, 4 + 1, 10 + 1, 12 + 1, 14 + 1, 16 + 1, 22 + 1, 24 + 1
  	.byte	30 + 1, 44 + 1, 74 + 1, 0
@@ -1553,16 +1436,15 @@ NT_DATA:
 PARAM_DEVICES_AY1:
 	.word	0, 0, 0			; first two aren't used, third is AY port #
 PARAMETERS_AY1:
-	.blkb	PARAM_SIZE*2
+	.blkb	PARAM_SIZE
+	.even
 PARAM_DEVICES_AY2:
 	.word	0, 0, 0
 PARAMETERS_AY2:
-	.blkb	PARAM_SIZE*2
+	.blkb	PARAM_SIZE
+	.even
 
-; file data here
-PT3FILE:
-;	@includebin test.pt3
-; PT3FILE_END:
-
+; data for handlers and .pt3 file is here 
+END_OF_PROGRAM:
 
 	.end	Start
