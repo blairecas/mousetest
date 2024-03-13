@@ -190,7 +190,7 @@ ReadFile:
 	bic	#10000, @#44	; echo input keys (in case of direct input)
 	mov	SP, R5		; save SP (.csigen changes it)
 	.csige	#fDSPAC, #fDEXT
-	mov	R5, SP		; restore SP (that is written in RT-11 manual examples, so..)
+	mov	R5, SP		; restore SP
 	bis	#10000, @#44	; don't echo input keys
 	; get file size 
 	mov	#3, R0		; CHANNEL #

@@ -1,13 +1,13 @@
 	.mcall	.print .exit .setto .csige .readw .close
 	.enabl	LC
 	.list	MEB
+
 	.asect
 	.=1000
 
 ; /////////////////////////////////////////////////////////////////////////////
 
-Start:	mov	#1000, SP			; for what? (just in case)
-	call	GetAllMem			; get all memory (up to USR)
+Start:	call	GetAllMem			; get all memory (up to USR)
 	.print	#MsgCls
 	call	ClearVram12			; clear vram planes 1 and 2
 	call	ReadFile			; read file (to vram12)
