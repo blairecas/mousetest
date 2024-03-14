@@ -318,96 +318,7 @@ PPUMain:
 	mov	R1, (R2)
 	movb	R0, (R2)
 	dec	R1
-
-; DEBUG
-	; 11 - Envelope low bits
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 10 - Amplitude C
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	clrb	(R2)
-;	dec	R1
-;
-;	; 09 - Amplitude B
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	clrb	(R2)
-;	dec	R1
-;
-;	; 08 - Amplitude A
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	clrb	(R2)
-;	dec	R1
-;
-;	; 07 - enable channels
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 06 - Noise period
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 05 - Tone C high bits
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 04 - Tone C low bits
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 03 - Tone B high bits
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 02 - Tone B low bits
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 01 - Tone A high bits
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 00 - Tone A low bits
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-
-	; and 12. other regs
+	; and 11.-0 regs
 	mov	#6., R3
 20$:	dec	(R4)
 	mov	(R5), R0
@@ -1372,9 +1283,9 @@ CHANGE_REGS_NEXT:
 	beq	110$
 	bit	#100, R3   				; 0x40
 	beq	18$
-	cmp	R0, #15.				; blaire: changed to CMP (was CMPB)
+	cmp	R0, #15.				; blaire: faster than CMPB?
 	beq	110$
-	inc	R0   					; blaire: changed to INC (was INCB)
+	inc	R0   					; blaire: faster than INCB?
 	br	19$ 
 18$:
 	cmp	R0, #-15.				; blaire: changed to CMP (was CMPB)
