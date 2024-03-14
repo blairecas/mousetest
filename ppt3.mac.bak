@@ -303,7 +303,6 @@ PPUMain:
 	mtps	#200			; no way you interrupts!
 
 	; cycle AY regs
-	; 13 - Envelope shape/cycle
 	mov	#13., R1
 	dec	(R4)
 	mov	(R5), R0
@@ -313,100 +312,11 @@ PPUMain:
 	mov	R1, (R2)
 	movb	R0, (R2)
 10$:	dec 	R1
-	; 12 - Envelope high bits
+	; 12th
 	swab	R0
 	mov	R1, (R2)
 	movb	R0, (R2)
 	dec	R1
-
-; DEBUG
-	; 11 - Envelope low bits
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 10 - Amplitude C
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	clrb	(R2)
-;	dec	R1
-;
-;	; 09 - Amplitude B
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	clrb	(R2)
-;	dec	R1
-;
-;	; 08 - Amplitude A
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	clrb	(R2)
-;	dec	R1
-;
-;	; 07 - enable channels
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 06 - Noise period
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 05 - Tone C high bits
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 04 - Tone C low bits
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 03 - Tone B high bits
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 02 - Tone B low bits
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 01 - Tone A high bits
-;	dec	(R4)
-;	mov	(R5), R0
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-;
-;	; 00 - Tone A low bits
-;	swab	R0
-;	mov	R1, (R2)
-;	movb	R0, (R2)
-;	dec	R1
-
 	; and 12. other regs
 	mov	#6., R3
 20$:	dec	(R4)
@@ -810,7 +720,7 @@ VOL_TABLE_MAKER:
 	clr	R1  
 	cmpb	R0, #5  
 	mov	(PC)+, R0
-	aslb	R0
+	aslb	R0  
 	bhis	10$
 	dec	R3  
 	mov	R3, R1  
@@ -1175,7 +1085,7 @@ OLDPRTM:
 	return	
 
 SUBR_GLISS:
-	movb	R5, CHP_SIMPLEGLISS(R5)
+	movb	(PC), CHP_SIMPLEGLISS(R5)
 	movb	(R3)+, R0
 	movb	R0, CHP_TON_SLIDE_DELAY(R5)
 	bne	GL36
@@ -1310,7 +1220,7 @@ CHANGE_REGS_NEXT:
 	mov	CHP_SAMPLEPOINTER(R5), R1   
 	movb	(R1)+, R4   
 	movb	(R1)+, R3   
-	movb	CHP_POSITION_IN_SAMPLE(R5), R0
+	movb	CHP_POSITION_IN_SAMPLE(R5), R0  
 	add	R0, R1
 	add	R0, R1
 	add	R0, R1
@@ -1352,13 +1262,11 @@ CHANGE_REGS_NEXT:
 	tstb	CHP_SIMPLEGLISS(R5) 
 	bne	17$
 	mov	CHP_TON_DELTA(R5), R0
-
 	tst	R2  
+  
 	bpl	15$
-
 	cmp	R1, R0
 	ble	16$
-
 	br	17$
 
 15$:	cmp	R1, R0
@@ -1372,19 +1280,18 @@ CHANGE_REGS_NEXT:
 	beq	110$
 	bit	#100, R3   				; 0x40
 	beq	18$
-	cmp	R0, #15.				; blaire: changed to CMP (was CMPB)
+	cmpb	R0, #15. 
 	beq	110$
-	inc	R0   					; blaire: changed to INC (was INCB)
-	br	19$ 
-18$:
-	cmp	R0, #-15.				; blaire: changed to CMP (was CMPB)
+	incb	R0   
+	br	19$
+ 
+18$:	cmpb 	R0, #-15.   
 	beq	110$
-	dec	R0   					; blaire: changed to DEC (was DECB)
-
+	decb	R0   
 19$:	movb 	R0, CHP_CURRENT_AMPLITUDE_SLIDING(R5)
 110$: 	mov	R4, R1  
 	bic	#177760, R1 				; 0xFFF0
-	add	R1, R0  				; blaire: maybe here was a problem with above changes
+	add	R1, R0  
 	bpl	111$
 	clr	R0
 111$:	cmp	R0, #16.
