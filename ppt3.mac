@@ -1,5 +1,5 @@
 	.title	PPT3
-	.mcall	.print .ttout .exit .setto .csige .cstat .readw .close
+	.mcall	.print .ttout .exit .herr .setto .csige .cstat .readw .close
 	.enabl	LC
 	.list	MEB
 
@@ -7,7 +7,10 @@
 	.asect
 	.=1000
 
-Start:	; init mem and read file
+Start:	; usage
+	; .print	#MsgUsage		; bad for .com
+
+	; init mem and read file
 	call	GetAllMem			; get all memory (up to USR)
 	call	ReadFile			; read file 
 
@@ -24,11 +27,11 @@ Start:	; init mem and read file
 	tst	PpuNoAy
 	beq	10$
 	.print	#MsgNoAy
-	br	99$
+	br	90$
 
 10$:	call	PlayPt3
 
-99$:	; ask PPU for exit
+90$:	; ask PPU for exit
 	mov	#-1, PpuComm
 	tst	PpuComm
 	bne	.-4
@@ -36,9 +39,20 @@ Start:	; init mem and read file
 	; release PPU memory
 	call	PPRele
 
-	; .hreset before .exit
+	; set error if any to exit from .com
+	mov	ErrCode, @#52
+
+99$:	; .hreset before .exit
 	clr	R0
 	.exit
+
+
+ErrCode:	.word	0
+
+;MsgUsage:	.ascii	"PT3 player"<12><15>
+;		.ascii	"Usage: PPT3 FILE[.PT3]"<12><15>
+;		.ascii	".. based on KUVO's BK-0010 player code"<12><15>
+;		.asciz	".. press AP2 to abort .com file if launched from there"<12><15>
 
 MsgNoAy:	.asciz	"ERROR: No AY device detected on PPU @#177360"
 		.even
@@ -93,27 +107,39 @@ PlayPt3:
 	mov	#VSyncInt, @#100
 
 	call	Init
+
 10$:	tst	VSyncCount			; awaiting vsync
 	beq	10$
 	clr	VSyncCount
-	; check for key release in PPU
-	tst	PpuKeyRelease
-	bne	90$
+
 	; call this play routine every frame
 	call	Play
+
 	; end of file?
 	tst	END_OF_PT3FILE
+	bne	99$
+
+	; check for key release in PPU
+	tst	PpuKeyRelease
 	beq	10$
 
-90$:	; mute two (! UKNC has three !) AY devices
+	; test for AP2 release (TODO: UPR-C? but there are two keys..)
+	cmp	PpuKeyRelease, #^B10000110
+	bne	99$
+	
+	; must set error (well, I will use -1 :)
+	dec	ErrCode
+
+99$:	; mute two (! UKNC has three !) AY devices
 	call	Mute
 	; restore vsync int and return
 	mov	(SP)+, @#100
 	return
 
+
 ; // File read //////////////////////////////////////////////////
 
-		.ascii	"> "
+		.ascii	<12><15>"> "
 fStrBuf:	.blkb	82.
 
 fDSPAC	= END_OF_PROGRAM	; .csigen device handler buffer
@@ -134,7 +160,7 @@ ReadFile:
 	mov	R5, SP				; restore SP	
 	mov	R0, PT3FILE_MODULE1_ADDR	; adjust .pt3 file starting addr if .csige loaded device handler
 	; print csi string
-	.print	#fStrBuf-2
+	.print	#fStrBuf-4
 	; get file size and check for overflow
 	.cstat	#fAREA, #3, #fCSTAT		; get channel info
 	bcc	10$
