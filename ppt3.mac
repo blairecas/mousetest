@@ -113,6 +113,7 @@ PlayPt3:
 
 ; // File read //////////////////////////////////////////////////
 
+		.ascii	"> "
 fStrBuf:	.blkb	82.
 
 fDSPAC	= END_OF_PROGRAM	; .csigen device handler buffer
@@ -133,7 +134,7 @@ ReadFile:
 	mov	R5, SP				; restore SP	
 	mov	R0, PT3FILE_MODULE1_ADDR	; adjust .pt3 file starting addr if .csige loaded device handler
 	; print csi string
-	.print	#fStrBuf
+	.print	#fStrBuf-2
 	; get file size and check for overflow
 	.cstat	#fAREA, #3, #fCSTAT		; get channel info
 	bcc	10$

@@ -105,6 +105,7 @@ PlayPt3:
 
 ; // File read //////////////////////////////////////////////////
 
+		.ascii	"> "
 fStrBuf:	.blkb	82.
 
 fDSPAC	= END_OF_PROGRAM	; .csigen device handler buffer
@@ -125,7 +126,7 @@ ReadFile:
 	mov	R5, SP				; restore SP
 	mov	R0, PT3FILE_MODULE1_ADDR	; adjust .pt3 file starting addr if .csige loaded device handler
 	; print csi string
-	.print	#fStrBuf
+	.print	#fStrBuf-2
 	; get file size and check for overflow
 	.cstat	#fAREA, #3, #fCSTAT		; get channel info
 	bcc	10$
@@ -1298,18 +1299,19 @@ CHANGE_REGS_NEXT:
 	beq	110$
 	bit	#100, R3   				; 0x40
 	beq	18$
-	cmpb	R0, #15. 
+	cmp	R0, #15.				; blaire: faster than CMPB?
 	beq	110$
-	incb	R0   
-	br	19$
- 
-18$:	cmpb 	R0, #-15.   
+	inc	R0   					; blaire: faster than INCB?
+	br	19$ 
+18$:
+	cmp	R0, #-15.				; blaire: changed to CMP (was CMPB)
 	beq	110$
-	decb	R0   
+	dec	R0   					; blaire: changed to DEC (was DECB)
+
 19$:	movb 	R0, CHP_CURRENT_AMPLITUDE_SLIDING(R5)
 110$: 	mov	R4, R1  
 	bic	#177760, R1 				; 0xFFF0
-	add	R1, R0  
+	add	R1, R0  				; blaire: maybe here was a problem with above changes
 	bpl	111$
 	clr	R0
 111$:	cmp	R0, #16.
