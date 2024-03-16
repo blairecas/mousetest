@@ -39,7 +39,7 @@ Start:	; usage
 	; release PPU memory
 	call	PPRele
 
-	; set error if any to exit from .com
+	; set error to exit from .com
 	mov	ErrCode, @#52
 
 99$:	; .hreset before .exit
@@ -1113,7 +1113,7 @@ OLDPRTM:
 	return	
 
 SUBR_GLISS:
-	movb	R5, CHP_SIMPLEGLISS(R5)
+	movb	(PC), CHP_SIMPLEGLISS(R5)
 	movb	(R3)+, R0
 	movb	R0, CHP_TON_SLIDE_DELAY(R5)
 	bne	GL36
