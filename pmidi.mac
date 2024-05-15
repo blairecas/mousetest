@@ -1,0 +1,562 @@
+	.title	PMIDI
+	.mcall	.print .ttout .exit .herr .setto .csige .cstat .readw .close
+	.enabl	LC
+	.list	MEB
+
+	; remove this for normal linker
+	.asect
+	.=1000
+
+Start:	; init mem and read file
+	call	GetAllMem			; get all memory (up to USR)
+	call	ReadFile			; read file
+	call	MParseHeader			; check midi header
+	bcs	99$
+	call	MInitTracks			; check midi tracks
+	bcs	99$
+
+	; start PPU code
+	mov	#PPUSta, R4			; run PPU code
+	mov	#<PPUEnd-PPUSta>/2, R5
+	call	PPURun
+
+	; wait for PPU code be in a working order
+	tst	PpuComm
+	bne	.-4
+
+	; check for GM device presence
+;	tst	PpuNoGm
+;	beq	10$
+;	.print	#MsgNoGm
+;	br	90$
+
+10$:	call	PlayMidi
+
+90$:	; ask PPU for exit
+	mov	#-1, PpuComm
+	tst	PpuComm
+	bne	.-4
+	; release PPU memory
+	call	PPRele
+	; set error to exit from .com
+	mov	ErrCode, @#52
+
+99$:	clr	R0				; .hreset before .exit
+	.exit
+
+
+ErrCode:	.word	0
+MsgNoGm:	.asciz	"? no GM device detected on PPU 177366/177370"
+		.even
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // Memory and utils
+; //////////////////////////////////////////////////////////////////////////////
+
+RamTop:		.word	0			; top addr of available RAM
+
+MsgSettop:	.asciz	"? can't use all memory (.settop failed)"
+MsgNoMemory:	.asciz	"? can't allocate memory up to 100000"
+		.even 
+
+; code from Alex_K
+GetAllMem:
+	mov	@#54, R0			; addr of RMON
+	mov	266(R0), R0			; addr of USR? (in case of set USR SWAP)
+	tst	-(R0)				; -2 bytes
+	.setto
+	bcc	10$
+	.print	#MsgSettop
+	.exit
+10$:	mov	R0, RamTop
+	cmp	R0, #100000			; at least top must be 100000 (i want so :)
+	bhis	20$
+	.print	#MsgNoMemory
+	.exit
+20$:	; and clear memory to top from end of program
+	mov	#END_OF_PROGRAM, R0
+	mov	RamTop, R3
+	sub	R0, R3
+	clrb	(R0)+
+	sob	R3, .-2
+	return 
+
+
+; compare byte arrays, R4, R5 - addrs, R3 - length, return C=1 - have differences
+CompareBytes:
+	cmpb	(R4)+, (R5)+
+	bne	90$
+	sob	R3, CompareBytes
+	tst	(PC)+
+90$:	sec
+	return
+
+
+; get word in MSB, R5 - addr
+; return: R0 - word, R5 - addr after
+GetMsbWord:
+	clr	R0
+	bisb	(R5)+, R0
+	swab	R0
+	bisb	(R5)+, R0
+	return
+
+
+; get dword -> word in MSB
+GetMsbDword:
+	inc	R5				; skip 2 bytes
+	inc	R5
+	br	GetMsbWord
+	
+
+; get variable-sized length
+; R5 - addr of starting byte
+; return: R3 - length - WARNING: originally DWORD (!)
+GetVarLength:
+	clr	R3
+10$:	movb	(R5)+, R0
+	bpl	90$
+	bic	#^B1111111110000000, R0
+	ash	#7, R3
+	bisb	R0, R3
+	br	10$
+90$:	ash	#7, R3
+	bisb	R0, R3
+	return
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // File read
+; //////////////////////////////////////////////////////////////////////////////
+
+		.ascii	"> "
+fStrBuf:	.blkb	82.
+
+fDSPAC	= END_OF_PROGRAM			; .csigen device handler buffer
+fDEXT:		.rad50	"MID"			; default inpu extension
+		.word	0,0,0			; default output extensions
+fAREA:		.blkw	5			; parameters buffer for .readw macro
+fCSTAT:		.blkw	6			; channel status info buffer
+
+MsgReadError:	.asciz	"? file read error"
+MsgFileIsBig:	.asciz	"? file is too big to fit in memory"
+MsgNoChannel:	.asciz	"? unable to open file channel #3"
+		.even
+
+ReadFile:
+	; open file
+	mov	SP, R5				; save SP before .csigen (will change it)
+	.csige	#fDSPAC, #fDEXT, , #fStrBuf	; load handler, open file channel from user input
+	mov	R5, SP				; restore SP	
+	mov	R0, MFileStart			; adjust .mid file starting addr if .csige loaded device handler
+	; print csi string
+	.print	#fStrBuf-2
+	; get file size and check for overflow
+	.cstat	#fAREA, #3, #fCSTAT		; get channel info
+	bcc	10$
+	.print	MsgNoChannel
+	br	99$
+10$:	mov	fCSTAT+4, R4			; file size in blocks
+	swab	R4				; file size in words
+	clrb	R4
+	mov	R4, R5				; R5 = file size in words
+	asl	R4				; R4 = file size in bytes
+	add	MFileStart, R4			; check for overflow
+	cmp	R4, RamTop
+	blo	20$
+	.print	#MsgFileIsBig
+	br	99$
+	; reading
+20$:	.readw	#fAREA, #3, MFileStart, R5, #0
+	bcc	30$
+	tstb	@#52				; EOF error ?
+	beq	30$
+	.print	#MsgReadError
+	br	99$
+30$:	.close	#3
+	; now must get real file size (need this for TS detection in player)
+	tstb	-(R4)
+	beq	.-2
+	inc	R4				; addr AFTER last byte
+	mov	R4, MFileEnd
+	return
+99$:	clr	R0				; perform .hreset before .exit
+	.exit
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // MIDI
+; //////////////////////////////////////////////////////////////////////////////
+
+C_MAX_TRACKS	= 16.
+
+MFileStart:	.word	0
+MFileEnd:	.word	0
+MFileType:	.word	0
+MTracksNum:	.word	0
+MCurTracksNum:	.word	0
+MSpeedDiv:	.word	0
+MSpeedSob:	.word	0
+MLastChMsg:	.word	0
+
+MTracks:	.blkw	C_MAX_TRACKS * 3	; [delay] [cur addr] [end+1 addr]
+
+MThdTag:	.ascii	"MThd"<0><0><0><6>
+MTrkTag:	.ascii	"MTrk"
+
+MsgBadHeader:	.asciz	"? midi file header is bad (no MThd 6)"
+MsgBadType:	.asciz	"? only type 0,1 midi allowed"
+MsgBadTrnum:	.asciz	"? midi tracks number must be (1..16)"
+MsgBadTrkh:	.asciz	"? bad track header (no MTrk)"
+MsgBadTrks:	.asciz	"? too many actual MTrk (>16)"
+		.even
+
+; get some info from midi file header
+MParseHeader:
+	; test for MThd 6
+	mov	MFileStart, R5
+	mov	#MThdTag, R4
+	mov	#8., R3
+	call	CompareBytes
+	bcc	10$
+	.print	#MsgBadHeader
+	br	90$
+10$:	; midi file type
+	call	GetMsbWord
+	mov	R0, MFileType
+	beq	20$
+	dec	R0
+	beq	20$
+	.print	#MsgBadType
+	br	90$
+20$:	; tracks number
+	call	GetMsbWord
+	mov	R0, MTracksNum
+	cmp	R0, #1
+	blo	24$
+	cmp	R0, #16.
+	bhi	24$
+	br	30$
+24$:	.print	#MsgBadTrnum
+	br	90$
+30$:	; speed divisor
+	call	GetMsbWord
+	mov	R0, MSpeedDiv
+	; 440000(8) / speed div
+	mov	#40000, R1
+	mov	#2, R0
+	div	MSpeedDiv, R0
+	mov	R0, MSpeedSob
+	; seems all is ok
+	tst	(PC)+
+90$:	sec
+	return
+
+
+; prepare midi tracks
+MInitTracks:
+	mov	MFIleStart, R5
+	add	#14., R5			; R5 = first MTrk addr
+	mov	#MTracks, R2			; R2 = tracks array addr
+	mov	#-1, R1				; R1 = cur track #
+10$:	inc	R1
+	cmp	R1, #C_MAX_TRACKS
+	blo	14$
+	.print	#MsgBadTrks
+	br	90$
+14$:	mov	#MTrkTag, R4
+	mov	#4., R3
+	call	CompareBytes
+	bcc	20$
+	.print	#MsgBadTrkh
+	br	90$
+20$:	clr	(R2)+				; initial delay = 0
+	call	GetMsbDword
+	mov	R5, (R2)+			; store track data start addr
+	add	R0, R5
+	mov	R5, (R2)+			; store track data end+1 addr
+	cmp	R5, MFileEnd
+	blo	10$
+	; seems all is ok
+	tst	(PC)+
+90$:	sec
+	return
+
+
+; process track 
+; R4 - addr in MTracks
+MProcessTrack:
+	mov	2(R4), R5
+	beq	99$
+	dec	(R4)
+	bmi	10$
+	bne	99$
+	br	20$
+10$:	call	GetVarLength
+	mov	R5, 2(R4)
+	mov	R3, (R4)
+	bne	99$
+20$:	call	MSendMessage
+	mov	R5, 2(R4)
+	cmp	R5, 4(R4)
+	blo	10$	
+	clr	2(R4)
+	dec	MCurTracksNum
+99$:	return
+
+
+; send midi event message
+; R5 - addr (bytes after delay)
+; return: R5 - next delay addr
+MSendMessage:
+	clr	R0
+	bisb	(R5)+, R0
+	; 0xFF - meta event message - just skip it
+	cmp	R0, #^xFF
+	bne	10$
+	inc	R5				; skip type
+	call	GetVarLength			; R3 <- variable length
+	add	R3, R5				; skip rest
+	return
+10$:	; 0xF0 - sysex message start
+	cmp	R0, #^xF0
+	bne	30$
+	call	MSendByte			; send R0 = 0xF0
+20$:	call	GetVarLength
+	jmp	MSendArray			; send rest of message
+30$:	; 0xF7 - sysex message continue/end
+	cmp	R0, #^xF7
+	beq	20$
+	;
+	; channel midi messages 
+	;
+	; test for continue
+	cmp	R0, #^x80
+	bhis	40$
+	mov	MLastChMsg, R0
+	dec	R5
+	br	50$
+40$:	; have new channel message
+	mov	R0, MLastChMsg
+	call	MSendByte
+50$:	bic	#^B1111111100001111, R0		; get byte without channel
+	; 0xCn - program change - 1-byte
+	cmp	R0, #^xC0
+	bne	70$
+60$:	clr	R0
+	bisb	(R5)+, R0
+	jmp	MSendByte
+70$:	; 0xDn - channel pressure
+	cmp	R1, #^xD0
+	beq	60$
+	; assume all other are 2-byte
+	clr	R0
+	bisb	(R5)+, R0
+	call	MSendByte
+	br	60$
+
+
+; send one byte to midi port, R0 - byte
+MSendByte:
+	tst	PpuComm
+	bne	.-4	
+	mov	R0, PpuGmData
+	inc	PpuComm
+	return
+
+
+; send bytes array to midi port, R3 - length, R5 - addr of array
+MSendArray:
+	clr	R0
+	bisb	(R5)+, R0
+	call	MSendByte
+	sob	R3, MSendArray
+	return
+
+
+; plays midi
+PlayMidi:
+	mov	MTracksNum, MCurTracksNum
+10$:	; delay
+	mov	MSpeedSob, R0
+	sob	R0, .
+	; check if we still need to play
+	tst	MCurTracksNum			; test currently playing tracks number
+	beq	99$				; all ended?
+	bmi	99$				; ? just in case
+	; all tracks one tick
+	mov	#MTracks, R4
+	mov	MTracksNum, 30$+2
+20$:	call	MProcessTrack
+	add	#6, R4
+30$:	dec	#000000
+	bne	20$
+	; need to exit from keys?
+	tst	PpuKeyRelease			; check for key release in PPU
+	beq	10$
+	cmp	PpuKeyRelease, #^B10000110	; test for AP2 release (TODO: UPR-C? but there are two keys..)
+	bne	99$	
+	dec	ErrCode				; must set error (well, I will use -1 :)	
+99$:	return
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // CPU -> PPU exchange	
+; //////////////////////////////////////////////////////////////////////////////
+
+MsgPpuNoMemory:	
+	.asciz	"? unable to allocate memory in PPU"
+	.even
+
+; PPU message
+;
+PPmsg:	.word	PPArr				; address of beginning of array
+        .word	177777				; end of transmission
+
+; PPU data exchange array
+;
+PPArr:	.byte	0				; return value (0 - OK)
+PPCmd:	.byte	0				; command
+	.word	32				; device type (32 - PPU mem)
+PPApp:	.word	0				; address for PPU
+PPAcp:	.word	0				; address for CPU
+PPLen:	.word	0				; length in words
+
+; send command to PPU with exch array
+PPSen:	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	#PPMsg, R0			; array address
+	mov	#5, R1				; bytes to send+1 (sending from @#PP_MSG)
+	br	1$
+2$:	movb	(R0)+, @#176676
+1$:	tstb	@#176674			; test if we are ready to send
+	bpl	1$				; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 2$
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	return
+
+; send and start PPU code
+; R4 - start addr in CPU
+; R5 - length / 2
+PPURun:	movb	#1, PPCmd			; 1 - allocate memory
+	mov	R5, PPLen
+	call	PPSen
+	tstb	PPArr				; test if allocate success
+	beq	1$				; 0 - OK
+	.print	#MsgPpuNoMemory
+	.exit					; fatal error - out of memory in PPU
+1$:	movb	#20, PPCmd			; 20 - write to PPU mem
+	mov	R5, PPLen
+	mov 	R4, PPAcp
+	call	PPSen
+	movb	#30, PPCmd			; 30 - run
+	call	PPSen
+	return
+
+; release PPU memory
+PPRele:	movb	#2, PPCmd			; 2 - release memory
+	call	PPSen
+	return
+
+
+; //////////////////////////////////////////////////////////////////////////////	
+; // PPU
+; //////////////////////////////////////////////////////////////////////////////
+
+; PPU starting addr
+PPUSta:
+	mtps	#200
+	clr	R0
+	call	@7132(R0)			; stop FD motor
+
+	; check GM presence
+	mov	@#4, -(SP)			; save trap int addr (todo: save psw?)
+	mov	PC, R0				; new trap int addr
+	add	#TrapInt-., R0
+	mov	R0, @#4				; set it
+	clr	R1				; check for GM
+	mtps	#0
+	tst	@#177366
+	mtps	#200
+	mov	(SP)+, @#4			; restore trap int addr
+	mov	R1, PpuNoGm			; write GM presence into PPU mem
+	bne	10$
+	mov	#77, @#177366			; if GM is present - write 77 to control 
+10$:	mov	#PpuNoGm/2, @#177010		; write GM presence into CPU mem
+	mov	R1, @#177014
+
+	; grab keyboard interrupt
+	mov	@#300, Ppu300Int
+	mov	PC, R0
+	add	#PpuKeyboard-., R0
+	mov	R0, @#300
+
+	; signal to CPU that we are working now
+	mov	#PpuComm/2, @#177010
+	clr	@#177014
+
+	mtps	#0
+
+; get into cycle, await data from CPU and write it to GM
+PPUMain:
+	mov	#PpuComm/2, @#177010
+	mov	@#177014, R0
+	bmi	PPUExit				; check for command 'PPU code exit'
+	beq	PPUMain				; if no 'send to GM' command - cycle again
+	tst	PpuNoGm
+	bne	90$
+	; write GM data
+	mov	#PpuGmData/2, @#177010
+	mov	@#177014, @#177370
+90$:	; set command parameter to 0 and cycle again
+	mov	#PpuComm/2, @#177010
+	clr	@#177014
+	br	PPUMain
+
+PPUExit:
+	tst	PpuNoGm
+	bne	10$
+	mov	#^xFF, @#177370			; reset GM?
+10$:	mov	Ppu300Int, @#300		; restore kbd interrupt
+	mov	#PpuComm/2, @#177010		; signal to CPU that we are finished
+	clr	@#177014
+	mtps	#0				; just in case
+	return
+
+
+; PPU trap interrupt (just increase R1)
+TrapInt:
+	inc	R1
+	rti
+
+
+; PPU keyboard interrupt (signal to CPU that we released anykey)
+PpuKeyboard:
+	mov	@#177010, -(SP)
+	mov	R0, -(SP)
+	mov	@#177702, R0			; key press or release
+	bit	#^B10000000, R0			; is it released?
+	beq	10$
+	mov	#PpuKeyRelease/2, @#177010
+	mov	R0, @#177014
+10$:	mov	(SP)+, R0
+	mov	(SP)+, @#177010
+	rti
+
+
+PpuNoGm:	.word	0			; =1 -> no GM device
+PpuComm:	.word	177777			; =0 -> PPU code is working now, >0 - ask to write GM data byte, <0 - ask for exit
+PpuGmData:	.word	0			; data for sending to GM
+
+Ppu300Int:	.word	0			; for saving keyboard int addr
+PpuKeyRelease:	.word	0			; =1 -> key was released
+
+PPUEnd:
+
+
+; data for handlers and .mid file is here
+END_OF_PROGRAM:
+
+	.end	Start
