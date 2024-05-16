@@ -25,10 +25,10 @@ Start:	; init mem and read file
 	bne	.-4
 
 	; check for GM device presence
-;	tst	PpuNoGm
-;	beq	10$
-;	.print	#MsgNoGm
-;	br	90$
+	tst	PpuNoGm
+	beq	10$
+	.print	#MsgNoGm
+	br	90$
 
 10$:	call	PlayMidi
 
@@ -544,9 +544,11 @@ PPUSta:
 	; timer
 	bic	#200, @#177716			; turn off sound generator
 	mov	@#304, Ppu304Int		; save old timer int
+	mov	@#306, Ppu306Int		; and psw for it	
 	mov	PC, R0
 	add	#PpuTimerInt-., R0
 	mov	R0, @#304			; set new timer interrupt
+	mov	#200, @#306
 	call	InitTimer
 	mov	PpuTimerVal, @#177712		; load timer counter
 	tst	@#177714
@@ -583,6 +585,7 @@ PPUExit:
 	mov	#^xFF, @#177370			; reset GM
 10$:	call	InitTimer
 	mov	Ppu304Int, @#304		; restore timer interrupt
+	mov	Ppu306Int, @#306
 	mov	Ppu300Int, @#300		; restore kbd interrupt
 	mov	#PpuComm/2, @#177010		; signal to CPU that we are finished
 	clr	@#177014
@@ -637,6 +640,7 @@ PpuComm:	.word	177777			; =0 -> PPU code is working now, >0 - ask to write GM da
 PpuGmData:	.word	0			; data for sending to GM
 
 Ppu304Int:	.word	0			; timer int addr
+Ppu306Int:	.word	0
 Ppu300Int:	.word	0			; keyboard int addr
 PpuKeyRelease:	.word	0			; =1 -> key was released
 
