@@ -103,6 +103,17 @@ GetMsbWord:
 	return
 
 
+; get 3-byte MSB into R0:R1
+GetMsb3byte:
+	clr	R0
+	clr	R1
+	bisb	(R5)+, R0
+	bisb	(R5)+, R1
+	swab	R1
+	bisb	(R5)+, R1
+	return
+
+
 ; get dword -> word in MSB
 GetMsbDword:
 	inc	R5				; skip 2 bytes
@@ -189,6 +200,11 @@ ReadFile:
 ; // MIDI
 ; //////////////////////////////////////////////////////////////////////////////
 
+; Tempos:
+; Initial divisor for q-note (beat): 500 000 / div = mks for tick for 120bpm (500 000 - mks per beat)
+; FF 54 03 XX XX XX - tempo change for q-note (beat) 
+; get BPM = 60 000 000 / xxxxxx
+
 C_MAX_TRACKS	= 16.
 
 MFileStart:	.word	0
@@ -197,9 +213,10 @@ MFileType:	.word	0
 MTracksNum:	.word	0
 MCurTracksNum:	.word	0
 MSpeedDiv:	.word	0
-MSpeedSob:	.word	0
-MLastChMsg:	.word	0
+MMksTickDef:	.word	0
 
+MTrChMsgAddr:	.word	0
+MTrChMsg:	.blkw	C_MAX_TRACKS
 MTracks:	.blkw	C_MAX_TRACKS * 3	; [delay] [cur addr] [end+1 addr]
 
 MThdTag:	.ascii	"MThd"<0><0><0><6>
@@ -208,6 +225,7 @@ MTrkTag:	.ascii	"MTrk"
 MsgBadHeader:	.asciz	"? midi file header is bad (no MThd 6)"
 MsgBadType:	.asciz	"? only type 0,1 midi allowed"
 MsgBadTrnum:	.asciz	"? midi tracks number must be (1..16)"
+MsgBadDivisor:	.asciz	"? SMPTE speed not supported (speed division is negative)"
 MsgBadTrkh:	.asciz	"? bad track header (no MTrk)"
 MsgBadTrks:	.asciz	"? too many actual MTrk (>16)"
 		.even
@@ -242,15 +260,33 @@ MParseHeader:
 	br	90$
 30$:	; speed divisor
 	call	GetMsbWord
-	mov	R0, MSpeedDiv
-	; 440000(8) / speed div
-	mov	#40000, R1
-	mov	#2, R0
-	div	MSpeedDiv, R0
-	mov	R0, MSpeedSob
-	; seems all is ok
+	tst	R0
+	bpl	32$
+	.print	#MsgBadDivisor
+	br	90$
+32$:	mov	R0, MSpeedDiv
+	beq	40$				; wtf?
+	; 500000. / divisor - tick time in mks for 120bpm
+	; make it a bit slower, say 520000...
+	mov	#^B0111, R0
+	mov	#^B1110111101000000, R1
+	call	MUpdateTVal
+40$:	; seems all is ok
 	tst	(PC)+
 90$:	sec
+	return
+
+
+; helper procedure to update PP timer value
+; R0:R1 - mks per beat
+MUpdateTVal:
+	div	MSpeedDiv, R0			; R0:R1 / divisor
+	clc					; our PPU timer is 16mks clock
+	ror	R0				; so - divide by 16.
+	asr	R0
+	asr	R0
+	asr	R0
+	mov	R0, PpuTimerVal
 	return
 
 
@@ -312,11 +348,18 @@ MProcessTrack:
 MSendMessage:
 	clr	R0
 	bisb	(R5)+, R0
-	; 0xFF - meta event message - just skip it
+	; 0xFF - meta event message - just skip it (if not change tempo)
 	cmp	R0, #^xFF
 	bne	10$
-	inc	R5				; skip type
-	call	GetVarLength			; R3 <- variable length
+	movb	(R5)+, R0
+	cmpb	R0, #^x51			; is it 'set tempo'?
+	bne	2$
+	; change tempo
+	inc	R5				; (R5) must be 0x03
+	call	GetMsb3byte
+	call	MUpdateTVal			; update timer val
+	return
+2$:	call	GetVarLength			; R3 <- variable length
 	add	R3, R5				; skip rest
 	return
 10$:	; 0xF0 - sysex message start
@@ -334,11 +377,11 @@ MSendMessage:
 	; test for continue
 	cmp	R0, #^x80
 	bhis	40$
-	mov	MLastChMsg, R0
+	mov	@MTrChMsgAddr, R0
 	dec	R5
 	br	50$
 40$:	; have new channel message
-	mov	R0, MLastChMsg
+	mov	R0, @MTrChMsgAddr
 	call	MSendByte
 50$:	bic	#^B1111111100001111, R0		; get byte without channel
 	; 0xCn - program change - 1-byte
@@ -347,10 +390,10 @@ MSendMessage:
 60$:	clr	R0
 	bisb	(R5)+, R0
 	jmp	MSendByte
-70$:	; 0xDn - channel pressure
+70$:	; 0xDn - channel pressure - 1-byte
 	cmp	R1, #^xD0
 	beq	60$
-	; assume all other are 2-byte
+	; assume all others are 2-byte
 	clr	R0
 	bisb	(R5)+, R0
 	call	MSendByte
@@ -378,23 +421,28 @@ MSendArray:
 ; plays midi
 PlayMidi:
 	mov	MTracksNum, MCurTracksNum
-10$:	; delay
-	mov	MSpeedSob, R0
-	sob	R0, .
+10$:	; set timer ticks
+	clr	PpuTimerTick
 	; check if we still need to play
 	tst	MCurTracksNum			; test currently playing tracks number
 	beq	99$				; all ended?
 	bmi	99$				; ? just in case
 	; all tracks one tick
 	mov	#MTracks, R4
+	mov	#MTrChMsg, MTrChMsgAddr
 	mov	MTracksNum, 30$+2
 20$:	call	MProcessTrack
 	add	#6, R4
+	add	#2, MTrChMsgAddr
 30$:	dec	#000000
 	bne	20$
-	; need to exit from keys?
+40$:	; need to exit from keys?
 	tst	PpuKeyRelease			; check for key release in PPU
-	beq	10$
+	bne	90$
+	tst	PpuTimerTick
+	bpl	40$
+	br	10$
+90$:	; exit from keypress
 	cmp	PpuKeyRelease, #^B10000110	; test for AP2 release (TODO: UPR-C? but there are two keys..)
 	bne	99$	
 	dec	ErrCode				; must set error (well, I will use -1 :)	
@@ -493,6 +541,19 @@ PPUSta:
 	add	#PpuKeyboard-., R0
 	mov	R0, @#300
 
+	; timer
+	bic	#200, @#177716			; turn off sound generator
+	mov	@#304, Ppu304Int		; save old timer int
+	mov	PC, R0
+	add	#PpuTimerInt-., R0
+	mov	R0, @#304			; set new timer interrupt
+	call	InitTimer
+	mov	PpuTimerVal, @#177712		; load timer counter
+	tst	@#177714
+	tst	@#177714
+	mov	#^B01000111, @#177710		; allow int, start, timer = 16mks, 62500 ticks per second
+						; bits [2 1] 00 - 2, 01 - 4, 10 - 8, 11 - 16
+
 	; signal to CPU that we are working now
 	mov	#PpuComm/2, @#177010
 	clr	@#177014
@@ -516,10 +577,13 @@ PPUMain:
 	br	PPUMain
 
 PPUExit:
+	mtps	#200
 	tst	PpuNoGm
 	bne	10$
-	mov	#^xFF, @#177370			; reset GM?
-10$:	mov	Ppu300Int, @#300		; restore kbd interrupt
+	mov	#^xFF, @#177370			; reset GM
+10$:	call	InitTimer
+	mov	Ppu304Int, @#304		; restore timer interrupt
+	mov	Ppu300Int, @#300		; restore kbd interrupt
 	mov	#PpuComm/2, @#177010		; signal to CPU that we are finished
 	clr	@#177014
 	mtps	#0				; just in case
@@ -546,12 +610,38 @@ PpuKeyboard:
 	rti
 
 
+; timer interrupt - just decrease timer ticks counter
+PpuTimerInt:
+	mov	@#177010, -(SP)
+	mov	#PpuTimerTick/2, @#177010
+	dec	@#177014
+	mov	#PpuTimerVal/2, @#177010
+	mov	@#177014, @#177712		; set 'new' timer counter (tempo can be changed in song)
+	mov	(SP)+, @#177010
+	tst	@#177714
+	tst	@#177714
+	rti
+
+
+; some init for timer
+InitTimer:
+	clr	@#177710
+	tst	@#177714
+	tst	@#177710
+	bne	InitTimer
+	return
+
+
 PpuNoGm:	.word	0			; =1 -> no GM device
 PpuComm:	.word	177777			; =0 -> PPU code is working now, >0 - ask to write GM data byte, <0 - ask for exit
 PpuGmData:	.word	0			; data for sending to GM
 
-Ppu300Int:	.word	0			; for saving keyboard int addr
+Ppu304Int:	.word	0			; timer int addr
+Ppu300Int:	.word	0			; keyboard int addr
 PpuKeyRelease:	.word	0			; =1 -> key was released
+
+PpuTimerVal:	.word	2000
+PpuTimerTick:	.word	0
 
 PPUEnd:
 
