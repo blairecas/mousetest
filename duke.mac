@@ -51,7 +51,7 @@ Start:	call	GetAllMem
 	mov	#END_OF_PROGRAM, R1
 	call	Unpack
 	mov	#END_OF_PROGRAM, MFileStart
-	mov	#END_OF_PROGRAM+^x489F, MFileEnd	; (!) hard coded midi file end+1
+	mov	R1, MFileEnd
 	call	MParseHeader
 	call	MInitTracks
 	call	PlayMidi
