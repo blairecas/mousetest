@@ -23,38 +23,19 @@ Start:	call	GetAllMem
 	; .print	#MsgNoGm
 	; br	90$
 
-	; unpack and draw picture
-	; red
-	mov	#DukePicR, R0
-	mov	#END_OF_PROGRAM, R1
-	call	Unpack
-	mov	#2, PpuComm
-	tst	PpuComm
-	bne	.-4
-	; green
-	mov	#DukePicG, R0
-	mov	#END_OF_PROGRAM, R1
-	call	Unpack	
-	mov	#3, PpuComm
-	tst	PpuComm
-	bne	.-4
-	; blue
-	mov	#DukePicB, R0
-	mov	#END_OF_PROGRAM, R1
-	call	Unpack	
-	mov	#4, PpuComm
-	tst	PpuComm
-	bne	.-4
-
-	; unpack and play midi
+	; unpack midi
 	mov	#DukeMidi, R0
 	mov	#END_OF_PROGRAM, R1
 	call	Unpack
 	mov	#END_OF_PROGRAM, MFileStart
 	mov	R1, MFileEnd
+
+10$:	; play it
 	call	MParseHeader
 	call	MInitTracks
 	call	PlayMidi
+	tst	PpuKeyRelease
+	beq	10$
 
 90$:	; ask PPU for exit
 	mov	#-1, PpuComm
@@ -170,31 +151,26 @@ GetVarLength:
 ; out:
 ; R0 = next byte after the source data
 ; R1 = next byte after the decompressed data
-Unpack:
-	clr	R2
+Unpack:	clr	R2
 	movb	#200, R3
 	sxt	R5
-DZX0_LITERALS:
-	call	DZX0_ELIAS
+10$:	call	50$
 	movb	(R0)+, (R1)+
 	sob	R2, .-2
 	aslb	R3
-	bcs	DZX0_NEW_OFFSET
-	call	DZX0_ELIAS
-DZX0_COPY:
-	mov	R1, R4
+	bcs	30$
+	call	50$
+20$:	mov	R1, R4
 	add	R5, R4
 	movb	(R4)+, (R1)+
 	sob	R2, .-2
 	aslb	R3
-	bcc	DZX0_LITERALS
-DZX0_NEW_OFFSET:
-	mov	#-2, R2
-	call	DZX0_ELIAS_LOOP
+	bcc	10$
+30$:	mov	#-2, R2
+	call	60$
 	incb	R2
 	bne	.+4
-DZX0_EXIT:
-	return
+40$:	return
 	swab	R2
 	mov	R2, R5
 	clrb	R5
@@ -202,22 +178,18 @@ DZX0_EXIT:
 	asr	R5
 	mov	#1, R2
 	bcs	.+6
-	call	DZX0_ELIAS_BACKTRACK
+	call	80$
 	inc	R2
-	br	DZX0_COPY
-DZX0_ELIAS:
-	incb	R2
-DZX0_ELIAS_LOOP:
-	aslb	R3
-	bne	DZX0_ELIAS_SKIP
+	br	20$
+50$:	incb	R2
+60$:	aslb	R3
+	bne	70$
 	movb	(R0)+, R3
 	rolb	R3
-DZX0_ELIAS_SKIP:
-	bcs	DZX0_EXIT
-DZX0_ELIAS_BACKTRACK:
-	aslb	R3
+70$:	bcs	40$
+80$:	aslb	R3
 	rol	R2
-	br	DZX0_ELIAS_LOOP
+	br	60$
 
 
 ; //////////////////////////////////////////////////////////////////////////////
@@ -587,7 +559,7 @@ PPUSta:
 	add	#2, (R0)+
 	sob	R3, 10$
 	; next 288 'main' lines
-	mov	#100001, R1
+	mov	#100000, R1
 	mov	#288., R3
 30$:	mov	R1, (R0)+
 	mov	R0, (R0)
@@ -622,6 +594,19 @@ PPUSta:
 	mov	#^B01000111, @#177710		; allow int, start, timer = 16mks, 62500 ticks per second
 						; bits [2 1] 00 - 2, 01 - 4, 10 - 8, 11 - 16
 
+	; unpack red
+	mov	#DukePicR, R0
+	mov	#177014, R1
+	call	PUnpackVram
+	; unpack green
+	mov	#DukePicG, R0
+	mov	#177015, R1
+	call	PUnpackVram
+	; unpack blue
+	mov	#DukePicB, R0
+	mov	#177012, R1
+	call	PUnpackVram
+
 	; signal to CPU that we are working now
 	mov	#PpuComm/2, @#177010
 	clr	@#177014
@@ -634,16 +619,11 @@ PPUMain:
 	mov	@#177014, R0
 	bmi	PPUExit				; check for command 'PPU code exit'
 	beq	PPUMain				; if no command - cycle again
-	dec	R0
-	asl	R0
-	asl	R0
-	add	R0, PC				; br maybe?
-	jmp	PpuWriteGm
-	jmp	PpuWriteRed
-	jmp	PpuWriteGreen
-	jmp	PpuWriteBlue
-PpuCont:					; set command parameter to 0 and cycle again
-	mov	#PpuComm/2, @#177010
+	tst	PpuNoGm
+	bne	10$
+	mov	#PpuGmData/2, @#177010
+	mov	@#177014, @#177370
+10$:	mov	#PpuComm/2, @#177010
 	clr	@#177014
 	br	PPUMain
 
@@ -661,81 +641,6 @@ PPUExit:
 	mov	#PpuComm/2, @#177010		; signal to CPU that we are finished
 	clr	@#177014
 	mtps	#0				; just in case
-	return
-
-
-PpuProcedures:	.word	0, PpuWriteGm, PpuWriteRed, PpuWriteGreen, PpuWriteBlue
-
-
-; write data to GM
-PpuWriteGm:
-	tst	PpuNoGm
-	bne	90$
-	; write GM data
-	mov	#PpuGmData/2, @#177010
-	mov	@#177014, @#177370
-90$:	jmp	PpuCont
-
-
-; write red bytes
-PpuWriteRed:
-	call	PpuWbpPrep
-10$:	mov	R0, (R4)
-	mov	(R5), R2			; get two bytes of red bitplane
-	inc	R0				; advance source addr
-	mov	R1, (R4)			; set dest addr
-	movb	R2, @#177014			; put first byte
-	swab	R2				; prepare next byte
-	inc	(R4)				; advance dest
-	inc	R1				; adcanve dest
-	movb	R2, @#177014			; put second byte
-	inc	R1				; advance dest
-	sob	R3, 10$
-	jmp	PpuCont
-
-
-; write green bytes
-PpuWriteGreen:
-	call	PpuWbpPrep
-10$:	mov	R0, (R4)
-	mov	(R5), R2
-	inc	R0
-	mov	R1, (R4)
-	movb	R2, @#177015
-	swab	R2
-	inc	(R4)
-	inc	R1
-	movb	R2, @#177015
-	inc	R1
-	sob	R3, 10$
-	jmp	PpuCont
-
-
-; write blue bytes
-PpuWriteBlue:
-	call	PpuWbpPrep
-10$:	mov	R0, (R4)
-	mov	(R5), R2
-	inc	R0
-	mov	R1, (R4)
-	movb	R2, @#177012
-	swab	R2
-	inc	(R4)
-	inc	R1
-	movb	R2, @#177012
-	inc	R1
-	sob	R3, 10$
-	jmp	PpuCont
-
-
-; prepare regs for copy picture
-PpuWbpPrep:
-	mov	#177010, R4
-	mov	#177014, R5
-	sub	#END_OF_PROGRAM, R3		; bytes count to copy
-	mov	#END_OF_PROGRAM/2, R0		; start addr in CPU
-	mov	#100000, R1			; vaddr
-	mov	#26400, R3			; words count for bitplane
 	return
 
 
@@ -781,6 +686,101 @@ InitTimer:
 	return
 
 
+; get byte (cpu addr) (R0) -> R1 and advance addr
+PGetB12:	
+	mov	R0, R1
+	inc	R0
+	clc
+	ror	R1
+	mov	R1, @#177010
+	bcs	10$
+	movb	@#177014, R1
+	return
+10$:	movb	@#177015, R1
+	return
+
+
+; put R0 -> byte to dest vaddr and advance it
+PPutA12 = PPutB12 + 2
+PPutB12:	
+	mov	#100000, @#177010
+	inc	PPutA12
+PPutBad:	
+	movb	R1, @#177014
+	return
+
+
+; unpacker version for vram picture unpack
+; R0 - source addr in CPU mem
+; R1 - reg addr to write output bytes (177012, 177014, 177015)
+; unpacking to vram from index 100000
+PUnpackVram:
+	; prepare
+	mov	#100000, PPutA12
+	mov	R1, PPutBad+2
+	mov	R1, 24$+2
+	; unpack
+	clr	R2
+	movb	#200, R3
+	sxt	R5
+10$:	call	50$
+	; movb	(R0)+, (R1)+
+	; sob	R2, .-2
+12$:	call	PGetB12
+	call	PPutB12
+	sob	R2, 12$
+	; 
+	aslb	R3
+	bcs	30$
+	call	50$
+20$:	; mov	R1, R4
+	; add	R5, R4
+	; movb	(R4)+, (R1)+
+	; sob	R2, .-2
+	mov	PPutA12, R4
+	add	R5, R4
+22$:	mov	R4, @#177010
+24$:	movb	@#177014, R1
+	inc	R4
+	call	PPutB12
+	sob	R2, 22$
+	;
+	aslb	R3
+	bcc	10$
+30$:	mov	#-2, R2
+	call	60$
+	incb	R2
+	bne	.+4
+40$:	return
+	swab	R2
+	mov	R2, R5
+	clrb	R5
+	; bisb	(R0)+, R5
+	call	PGetB12
+	bisb	R1, R5
+	;
+	asr	R5
+	mov	#1, R2
+	bcs	.+6
+	call	80$
+	inc	R2
+	br	20$
+50$:	incb	R2
+60$:	aslb	R3
+	bne	70$
+	; movb	(R0)+, R3
+	rol	R4				; save C flag in R4
+	call	PGetB12
+	movb	R1, R3
+	ror	R4				; restore C flag from R4
+	;
+	rolb	R3
+70$:	bcs	40$
+80$:	aslb	R3
+	rol	R2
+	br	60$
+
+
 PpuNoGm:	.word	0			; =1 -> no GM device
 PpuComm:	.word	177777			; =0 -> PPU code is working now, >0 - ask to write GM data byte, <0 - ask for exit
 PpuGmData:	.word	0			; data for sending to GM
@@ -804,18 +804,22 @@ PPUEnd:
 ; //////////////////////////////////////////////////////////////////////////////
 
 ; picture R
+.even
 DukePicR:
 @includebin ./graphics/duke.zxr
 
 ; picture G
+.even
 DukePicG:
 @includebin ./graphics/duke.zxg
 
 ; picture B
+.even
 DukePicB:
 @includebin ./graphics/duke.zxb
 
 ; midi music
+.even
 DukeMidi:
 @includebin ./music/grabbag.zx0
 
