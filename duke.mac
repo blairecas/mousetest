@@ -9,7 +9,7 @@
 Start:	call	GetAllMem
 
 	; run PPU code
-	mov	#PPUSta, R4			; run PPU code
+	mov	#PPUSta, R4
 	mov	#<PPUEnd-PPUSta>/2, R5
 	call	PPURun
 
