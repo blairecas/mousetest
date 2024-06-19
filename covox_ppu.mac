@@ -74,36 +74,13 @@ PPUMain:
 	mtps	#200
 
 ; LPT version
-	mov	#177, @#177103		; all LPT ports to output
+;	mov	#177, @#177103		; all LPT ports to output
 
 ; AY port 14. version
-;	mov	#7, @#177364
-;	movb	#377, @#177364
-;	mov	#16, @#177364
-
-; test for VM2 bug (are we on emulator?)
-; speed of playing on UKNCBTL must be lower than actial hardware
-; PPU on UKNCBTL is faster than real device
-; code from Alex_K
-;	clr	R1
-;	mov	#10., R2		; 10 times testing
-;1$:	nop				; don't know why it's here
-;	mov	(PC), R0		; must screw command preload
-; 	inc	R1			; will do 2 times on real VM2?
-;  	br	.+2			; reset bug with 3 times of branches
-;  	br	.+2
-;	br	.+2	
-;	sob	R2, 1$
-;	cmp	R1, #10.
-;	beq	20$			; we are on emulator
-	; adjust speed delay for playing on real device
-;	mov	#240, 30$		; nop opcode
-;	mov	#240, 30$+2
-;	mov	#240, 30$+4
-;	mov	#240, 30$+6
-;20$:	; test ends
-
-;	mov	#16, SP
+	mov	#7, @#177364
+	movb	#377, @#177364
+	mov	#16, @#177364
+	mov	#16, SP
 
 	; Manwe's BK-0010-01 code is here
 1000$:	mov	#60602, R0
@@ -117,10 +94,10 @@ PPUMain:
 	movb	(R4), R2
 	add	R2, R1
 ; LPT version
-	mov	R1, @#177100		; already inverted in BK? well done
+;	mov	R1, @#177100		; already inverted in BK? well done
 ; AY reg 14 version
 ;	mov	SP, @#177364
-;	movb	R1, @#177364
+	movb	R1, @#177364
 ; output ends
 	sob	R0, 1012$
 1046$:	mov	(R5)+, R3

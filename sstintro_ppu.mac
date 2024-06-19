@@ -55,27 +55,13 @@ VLinesBegin:				; GRB by default
 RtiAdr:	rti
 
 PPUMain:
-	mov	#177, @#177103		; all LPT ports to output
+; LPT version
+;	mov	#177, @#177103		; all LPT ports to output
 
-	; test for VM2 bug (are we on emulator?)
-	; speed of playing on UKNCBTL must be lower than actial hardware
-	; PPU on UKNCBTL is faster than real device
-	; code from Alex_K
-	clr	R1
-	mov	#10., R2		; 10 times testing
-1$:	nop				; don't know why it's here
-	mov	(PC), R0		; must screw command preload
-  	inc	R1			; will do 2 times on real VM2?
-  	br	.+2			; reset bug with 3 times of branches
-  	br	.+2
-	br	.+2	
-	sob	R2, 1$
-	cmp	R1, #10.
-	beq	20$			; we are on emulator
-	; adjust speed delay for playing on real device
-	mov	#403, 30$		; opcodes - br .+10
-	; mov	#240, 30$+6		; opcodes - nop
-20$:	; test ends
+; AY port 14. version
+	mov	#7, @#177364
+	movb	#377, @#177364
+	mov	#16, @#177364
 
 	; set stack as in Manwe's demo (maybe not needed all that 4 words, but just in case)
 	mov	#770, SP
@@ -99,11 +85,15 @@ PPUMain:
 	add	R2, R1
 	movb	(R3), R2
 	add	R2, R1
-	mov	R1, @#177100		; LPT port A
-	; 
-30$:	add	#72000, #000000		; adjust speed of playing for UKNCBTL
-	bcc	30$
-	;
+
+; output
+; LPT version
+;	mov	R1, @#177100		; LPT port A
+; AY reg 14 version
+;	mov	#14., @#177364
+	movb	R1, @#177364
+; output ends
+
 	sob	R0, 1414$
 ; mixing ends
 	mov	(SP)+, R0
