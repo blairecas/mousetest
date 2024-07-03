@@ -74,13 +74,13 @@ PPUMain:
 	mtps	#200
 
 ; LPT version
-;	mov	#177, @#177103		; all LPT ports to output
+	mov	#177, @#177103		; all LPT ports to output
 
 ; AY port 14. version
-	mov	#7, @#177364
-	movb	#377, @#177364
-	mov	#16, @#177364
-	mov	#16, SP
+;	mov	#7, @#177364
+;	movb	#377, @#177364
+;	mov	#16, @#177364
+;	mov	#16, SP
 
 	; Manwe's BK-0010-01 code is here
 1000$:	mov	#60602, R0
@@ -94,10 +94,13 @@ PPUMain:
 	movb	(R4), R2
 	add	R2, R1
 ; LPT version
-;	mov	R1, @#177100		; already inverted in BK? well done
+	mov	R1, @#177100		; already inverted in BK? well done
+	nop
+	nop
+	nop
+	nop
 ; AY reg 14 version
-;	mov	SP, @#177364
-	movb	R1, @#177364
+;	movb	R1, @#177364
 ; output ends
 	sob	R0, 1012$
 1046$:	mov	(R5)+, R3

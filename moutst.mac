@@ -343,6 +343,12 @@ PPUSta:	mtps	#200
 	add	#VsyncInt-., R0
 	mov	R0, @#100
 
+	; replace trap int
+	mov	@#4, Bkw004
+	mov	PC, R0
+	add	#TrapInt-., R0
+	mov	R0, @#4
+
 	; clear screen plane 0
 	mov	#177010, R4
 	mov	#177012, R5
@@ -406,6 +412,16 @@ PpuMain:
 	beq	PpuMain
 	clr	VsyncCount
 
+	; save 177400, 177410 to CPU
+	mtps	#200
+	mov	#177010, R4
+	mov	#177014, R5
+	mov	#30/2, (R4)
+	mov	@#177400, (R5)
+	mov	#32/2, (R4)
+	mov	@#177410, (R5)
+	mtps	#0
+
 	; need to exit?
 	tst	AnyKey
 	beq	10$
@@ -413,6 +429,7 @@ PpuMain:
 	; exit PPU
 	mtps	#200
 	call	XorMouse
+	mov	Bkw004, @#4		; trap restore
 	mov	Bkw100, @#100		; restore ints and vlines
 	mov	Bkw300, @#300
 	mov	Bkw270, @#270
@@ -503,6 +520,10 @@ PpuMain:
 
 ; ////////////////////////////////////////////////////////////////////
 
+; trap int
+TrapInt:
+	rti				; that's all folks
+
 ; vsync interrupt
 VsyncInt:
 	inc	VsyncCount
@@ -558,6 +579,7 @@ VsyncCount:	.word	0
 DblClickTimer:	.word	0
 Anykey:		.word	0
 
+Bkw004:		.word	0
 Bkw100:		.word	0
 Bkw300:		.word	0
 Bkw270:		.word	0
