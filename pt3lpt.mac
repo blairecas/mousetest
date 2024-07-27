@@ -248,6 +248,19 @@ PPUSta:
 	clr	R0
 	call	@7132(R0)		; stop FD motor
 
+	; damn that hacks - need to correct memory descriptors
+	mov	PC, R0
+	add	#PpuSta-., R0		; start of program
+	mov	#PpuEnd-PpuSta, -(R0)	; write length of current PPU code block
+	sub	#4, R0			; addr of our descriptor
+	mov	PC, R1
+	add	#PpuEnd-., R1		; end of program
+	mov	#77772, R2
+	sub	R1, R2			; length of free block (assume our program is last though it's incorrect)
+	clr	(R1)+			; 'free'
+	mov	R0, (R1)+		; addr of previous descriptor
+	mov	R2, (R1)+		; length of free mem
+
 	mov	#177, @#177103		; all ABC LPT ports to output
 
 	; grab keyboard interrupt
