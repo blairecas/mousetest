@@ -14,3 +14,5 @@ movb regData, @#177360
 4) primitive MIDI player (PMIDI)
 Registers on PPU: 177366 (control), 177400 (midi data send)
 
+.. and Duke Nukem with midi intro music
+.. Hail to the king, baby!
