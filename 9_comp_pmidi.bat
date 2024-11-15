@@ -18,4 +18,10 @@ echo ===========================================================================
 ..\scripts\rt11dsk.exe d moutst.dsk pmidi.sav >NUL
 ..\scripts\rt11dsk.exe a moutst.dsk .\release\pmidi.sav >NUL
 
+..\scripts\rt11dsk.exe d ..\..\03_dsk\hdd.dsk pmidi.sav >NUL
+..\scripts\rt11dsk.exe a ..\..\03_dsk\hdd.dsk .\release\pmidi.sav >NUL
+
+del _pmidi.mac
+del _pmidi.lst
+
 echo.

@@ -4,17 +4,25 @@ echo.
 echo ===========================================================================
 echo Compiling 
 echo ===========================================================================
-..\..\php5\php.exe -c ..\..\php5\ -f ..\scripts\preprocess.php tstlpt.mac
+php -f ..\scripts\preprocess.php tstlpt.mac
 if %ERRORLEVEL% NEQ 0 ( exit /b )
-..\..\macro11\macro11.exe -ysl 32 -yus -m ..\..\macro11\sysmac.sml -l _tstlpt.lst _tstlpt.mac
+..\scripts\macro11 -ysl 32 -yus -m ..\scripts\sysmac.sml -l _tstlpt.lst _tstlpt.mac
 if %ERRORLEVEL% NEQ 0 ( exit /b )
 
 echo.
 echo ===========================================================================
 echo Linking
 echo ===========================================================================
-..\..\php5\php.exe -c ..\..\php5\ -f ..\scripts\lst2bin.php _tstlpt.lst ./release/tstlpt.sav sav
-..\..\macro11\rt11dsk.exe d moutst.dsk .\release\tstlpt.sav >NUL
-..\..\macro11\rt11dsk.exe a moutst.dsk .\release\tstlpt.sav >NUL
+php -f ..\scripts\lst2bin.php _tstlpt.lst ./release/tstlpt.sav sav
+if %ERRORLEVEL% NEQ 0 ( exit /b )
+
+..\scripts\rt11dsk.exe d moutst.dsk tstlpt.sav >NUL
+..\scripts\rt11dsk.exe a moutst.dsk .\release\tstlpt.sav >NUL
+
+..\scripts\rt11dsk.exe d ..\..\03_dsk\hdd.dsk tstlpt.sav >NUL
+..\scripts\rt11dsk.exe a ..\..\03_dsk\hdd.dsk .\release\tstlpt.sav >NUL
+
+del _tstlpt.mac
+del _tstlpt.lst
 
 echo.

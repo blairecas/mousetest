@@ -1,6 +1,7 @@
 	.title	PPU
 	.enabl	LC,AMA	; local labels, absolute addr mode
 	.list	MEB	; enable macro-extensions binary listing
+
 	.asect
 	.=0	; from address 0 (!)
 
@@ -56,12 +57,12 @@ RtiAdr:	rti
 
 PPUMain:
 ; LPT version
-;	mov	#177, @#177103		; all LPT ports to output
+	mov	#177, @#177103		; all LPT ports to output
 
 ; AY port 14. version
-	mov	#7, @#177364
-	movb	#377, @#177364
-	mov	#16, @#177364
+;	mov	#7, @#177364
+;	movb	#377, @#177364
+;	mov	#16, @#177364
 
 	; set stack as in Manwe's demo (maybe not needed all that 4 words, but just in case)
 	mov	#770, SP
@@ -88,10 +89,10 @@ PPUMain:
 
 ; output
 ; LPT version
-;	mov	R1, @#177100		; LPT port A
+	mov	R1, @#177100		; LPT port A
 ; AY reg 14 version
 ;	mov	#14., @#177364
-	movb	R1, @#177364
+;	movb	R1, @#177364
 ; output ends
 
 	sob	R0, 1414$
