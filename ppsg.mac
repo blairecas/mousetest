@@ -304,15 +304,13 @@ VSyncInt:
 ; AY test routine
 NoAY:	.word	0
 
-ChkAY:	mov	@#4, OldInt4
+ChkAY:	mov	@#4, -(SP)
 	mov	PC, R0
 	add	#TrapInt-., R0
 	mov	R0, @#4
 	clr	R1
-	mtps	#0
 	tst	@#177360
-	mtps	#200
-	mov	OldInt4, @#4
+	mov	(SP)+, @#4
 	mov	R1, NoAY
 	return
 

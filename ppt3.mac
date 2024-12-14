@@ -286,9 +286,7 @@ PPUSta:
 	add	#TrapInt-., R0
 	mov	R0, @#4			; set it
 	clr	R1			; check for AY
-	mtps	#0
 	tst	@#177360
-	mtps	#200
 	mov	(SP)+, @#4		; restore trap int addr
 	mov	R1, PpuNoAy		; write AY presence into PPU mem
 	mov	#PpuNoAy/2, @#177010	; write AY presence into CPU mem

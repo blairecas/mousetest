@@ -522,9 +522,7 @@ PPUSta:	mtps	#200
 	add	#TrapInt-., R0
 	mov	R0, @#4				; set it
 	clr	R1				; check for GM
-	mtps	#0
 	tst	@#177366
-	mtps	#200
 	mov	(SP)+, @#4			; restore trap int addr
 	mov	R1, PpuNoGm			; write GM presence into PPU mem
 	bne	10$
