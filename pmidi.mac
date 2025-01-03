@@ -517,17 +517,21 @@ PPUSta:	mtps	#200
 	call	@7132(R0)			; stop FD motor
 
 	; check GM presence
-	mov	@#4, -(SP)			; save trap int addr (todo: save psw?)
+	mov	@#4, -(SP)			; save trap int addr
 	mov	PC, R0				; new trap int addr
 	add	#TrapInt-., R0
 	mov	R0, @#4				; set it
-	clr	R1				; check for GM
-	tst	@#177366
-	mov	(SP)+, @#4			; restore trap int addr
+	mov	#1000, R0
+10$:	clr	R1				; check for GM
+	mov	#77, @#177366			; set midi control
+	nop
+	nop					; give it some time to .. ? to what? 
+	tst	R1
+	beq	20$
+	sob	R0, 10$
+20$:	mov	(SP)+, @#4			; restore trap int addr
 	mov	R1, PpuNoGm			; write GM presence into PPU mem
-	bne	10$
-	mov	#77, @#177366			; if GM is present - write 77 to control 
-10$:	mov	#PpuNoGm/2, @#177010		; write GM presence into CPU mem
+	mov	#PpuNoGm/2, @#177010		; write GM presence into CPU mem
 	mov	R1, @#177014
 
 	; grab keyboard interrupt
