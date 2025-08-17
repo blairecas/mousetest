@@ -330,7 +330,7 @@ OutLptAy:
 	; movb	R0, (R2)
 	; return
 	; here is LPT version
-	mov	#177777,@#177102	; BC1 BDIR = 0 - INACT bus
+;	mov	#177777,@#177102	; BC1 BDIR = 0 - INACT bus
 	com	R0			; inverse addr/data
 	com	R1
 	cmp	R2, #177362
@@ -339,21 +339,37 @@ OutLptAy:
 	; addr register AY1
 	mov	R1, @#177101		; write reg addr
 	mov	#177774, @#177102	; COM #3 - BC1 BDIR = 1 - INTAK - latch addr
+	nop
+	nop
+	nop
+	nop
 	; data byte
-	mov	#177777, @#177102	; BC1 BDIR = 0 - INACT bus
+;	mov	#177777, @#177102	; BC1 BDIR = 0 - INACT bus
 	mov	R0, @#177101
 	mov	#177775, @#177102	; COM #2 - BC1=0 BDIR=1 - DWS write data
-	mov	#177777, @#177102	; BC1 BDIR = 0 - INACT bus
+	nop
+	nop
+	nop
+	nop
+;	mov	#177777, @#177102	; BC1 BDIR = 0 - INACT bus
 	br	99$
 
 50$:	; addr register AY2
 	mov	R1, @#177101		; write reg addr
 	mov	#177770, @#177102	; COM #3 - BC1 BDIR = 1 - INTAK - latch addr
+	nop
+	nop
+	nop
+	nop
 	; data byte
-	mov	#177773, @#177102	; BC1 BDIR = 0 - INACT bus
+;	mov	#177773, @#177102	; BC1 BDIR = 0 - INACT bus
 	mov	R0, @#177101
 	mov	#177771, @#177102	; COM #2 - BC1=0 BDIR=1 - DWS write data
-	mov	#177773, @#177102	; BC1 BDIR = 0 - INACT bus
+	nop
+	nop
+	nop
+	nop
+;	mov	#177773, @#177102	; BC1 BDIR = 0 - INACT bus
 
 99$:	com	R0			; inverse again to set them as they were
 	com	R1
