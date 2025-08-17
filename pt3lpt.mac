@@ -330,7 +330,7 @@ OutLptAy:
 	; movb	R0, (R2)
 	; return
 	; here is LPT version
-;	mov	#177777,@#177102	; BC1 BDIR = 0 - INACT bus
+	mov	#177777,@#177102	; BC1 BDIR = 0 - INACT bus
 	com	R0			; inverse addr/data
 	com	R1
 	cmp	R2, #177362
