@@ -23,6 +23,7 @@ if %ERRORLEVEL% NEQ 0 ( exit /b )
 ..\scripts\rt11dsk.exe a ..\..\03_dsk\hdd.dsk .\release\ppt3.sav >NUL
 
 del _ppt3.mac
-del _ppt3.lst
+rem del _ppt3.lst
 
+@run_ukncbtl.bat
 echo.

@@ -1,5 +1,5 @@
 	.title	PPT3
-	.mcall	.print .ttout .exit .herr .setto .csige .cstat .readw .close
+	.mcall	.print .ttout .exit .herr .setto .csige .csisp .cstat .readw .close .looku .fetch
 	.enabl	LC
 	.list	MEB
 
@@ -12,10 +12,44 @@ Start:	; usage
 
 	; init mem and read file
 	call	GetAllMem			; get all memory (up to USR)
+
+	; test if we are running w/o files
+	tstb	@#512				; I dunno what I'm doing here..
+	bne	OneFile
+
+	; else need to read directory of DK:
+	inc	PlayFromDir
+10$:	call	NextDirEntry			; next .pt3 entry
+	bcs	Exit				; none
+	; make .lookup then on #3 channel
+	.looku	#AreaDir, #3, #FnameNext
+	bcc	20$
+	.print	#MsgLookErr
+	br	Exit
+20$:	; radix 50 to ascii
+	mov	#FnameNext+2, R1
+	mov	#MsgFname+4, R0
+	call	R502A
+	call	R502A
+	movb	#'., (R0)+
+	call	R502A
+	clrb	(R0)
+	.print	#MsgFname
+	; read and play then
+	call	CleaMem
+	mov	FsizeNext, R4
+	call	ReadFileMany
+	call	ManyFiles
+	br	10$
+
+OneFile:
+	; one file play from csi
 	call	ReadFile			; read file 
 
+ManyFiles:
 	; start PPU code
-	mov	#PPUSta, R4		; run PPU code
+	clr	PpuKeyRelease
+	mov	#PPUSta, R4			; run PPU code
 	mov	#<PPUEnd-PPUSta>/2, R5
 	call	PPURun
 
@@ -42,7 +76,16 @@ Start:	; usage
 	; set error to exit from .com
 	mov	ErrCode, @#52
 
-99$:	; .hreset before .exit
+	; maybe exit maybe not
+	; if ErrCode is set (AP2 was pressed) - always exit and from .COM either
+	; if we are playing from dir - return then
+	tst	ErrCode
+	bmi	Exit
+	tst	PlayFromDir
+	beq	Exit
+	return
+
+Exit:	; .hreset before .exit
 	clr	R0
 	.exit
 
@@ -55,15 +98,17 @@ ErrCode:	.word	0
 ;		.asciz	".. press AP2 to abort .com file if launched from there"<12><15>
 
 MsgNoAy:	.asciz	"ERROR: No AY device detected on PPU @#177360"
+MsgNoFiles:	.asciz	"ERROR: No file given to play"
 		.even
 
 ; last two bytes aren't R14 R15 but AY UKNC device addr
 PpuAyRegisters:	.byte	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
-; // Memory ////////////////////////////////////////////////////
+; // from Alex_K ////////////////////////////////////////////////////
 
 RamTop:		.word	0			; top addr of available RAM
 
+MsgFname:	.asciz	<12><15>"> xxxxxx.pt3"
 MsgSettop:	.asciz	"ERROR: Can't use all memory (.settop failed)"
 MsgNoMemory:	.asciz	"ERROR: Can't allocate memory up to 100000"
 		.even 
@@ -79,16 +124,44 @@ GetAllMem:
 	.exit
 10$:	mov	R0, RamTop
 	cmp	R0, #100000			; at least top must be 100000 (i want so :)
-	bhis	20$
+	bhis	CleaMem
 	.print	#MsgNoMemory
 	.exit
-20$:	; and clear memory to top from AY params (we don't need it though)
+
+; and clear memory to top from AY params (we don't need it though)
+CleaMem:
 	mov	#PARAM_DEVICES_AY1, R0
 	mov	RamTop, R3
 	sub	R0, R3
 	clrb	(R0)+
 	sob	R3, .-2
 	return 
+
+R502A:	mov	(R1)+, R5
+        clr	R4
+        div	#3100, R4
+        call	50$
+        clr	R4
+        div	#50, R4
+        call	50$
+	mov	R5, R4
+        call	50$
+        return
+50$:	cmp	R4, #33
+        beq	4$
+        cmp	R4, #50
+        beq	2$
+        cmp	R4, #34
+        bhis	3$
+        tst	R4
+        beq	1$
+        add	#40, R4
+        add	#11, R4
+2$:	add	#5, R4
+3$:	add	#11, R4
+4$:	add	#11, R4
+	movb	R4, (R0)+
+1$:	return
 
 ; // Vsync /////////////////////////////////////////////////////
 
@@ -136,6 +209,78 @@ PlayPt3:
 	mov	(SP)+, @#100
 	return
 
+; // Directory routines /////////////////////////////////////////
+
+PlayFromDir:	.word	0
+CurDirBlk:	.word	6
+CurDirEnt:	.word	DirBuf+5
+AreaDir:	.blkw	5
+DkRad50:	.rad50	"DK "
+		.rad50	"   "
+		.rad50	"   "
+		.rad50	"   "
+FnameNext:	.rad50	"DK "
+		.blkw	3
+FsizeNext:	.word	0
+DirBuf:		.blkw	1000
+DirEntryAddr:	.word	DirBuf+10.-14.
+
+; loading segment of a directory
+LoadDirSegment:
+	; check segment addr
+	cmp	CurDirBlk, #6			; is it block #6 or higher?
+	bhis	10$				; yep
+	jmp	Exit				; exit if not (end of segments)
+10$:	.fetch	#END_OF_PROGRAM, #DkRad50
+	bcs	DirFetchErr
+	.looku	#AreaDir, #4, #DkRad50		; open channel #4 for .dir
+	bcs	DirLookErr
+	.readw	#AreaDir, #4, #DirBuf, #1000, CurDirBlk
+	bcs	DirReadErr
+	.close	#4
+	; put next segment addr
+	mov	DirBuf+2, R0			; next segment #
+	asl	R0				; two blocks for segment
+	add	#4, R0				; segment #1 is starting from block #6
+	mov	R0, CurDirBlk
+	return
+DirFetchErr:
+	.print	#MsgCantFetch
+	jmp	Exit
+DirLookErr:
+	.print	#MsgLookErr
+	jmp	Exit
+DirReadErr:
+	.print	#MsgCantRead
+	jmp	Exit
+
+NextDirEntry:
+	; dir buffer segment loaded?
+	tst	DirBuf
+	bne	20$
+10$:	call	LoadDirSegment
+	mov	#DirBuf+10.-14., DirEntryAddr
+20$:	add	#14., DirEntryAddr
+	mov	DirEntryAddr, R0
+	; check status word
+	cmp	(R0), #4000			; end of segment?
+	beq	10$				; then try read next segment
+	; check .pt3 extension
+	cmp	6(R0), #^RPT3			; is it .pt3?
+	bne	20$				; nope, next entry
+	; copy filename to FnameNext
+	mov	2(R0), FnameNext+2
+	mov	4(R0), FnameNext+4
+	mov	6(R0), FnameNext+6
+	; set file size
+	mov	10(R0), FsizeNext
+	return
+
+
+MsgCantFetch:	.asciz	"ERROR: can't fetch DK device handler"
+MsgLookErr:	.asciz	"ERROR: unable to do .lookup"
+MsgCantRead:	.asciz	"ERROR: unable to read directory segment"
+		.even
 
 ; // File read //////////////////////////////////////////////////
 
@@ -165,8 +310,12 @@ ReadFile:
 	.cstat	#fAREA, #3, #fCSTAT		; get channel info
 	bcc	10$
 	.print	MsgNoChannel
-	br	99$
+	jmp	Exit
 10$:	mov	fCSTAT+4, R4			; file size in blocks
+; R4 - file size in blocks
+; channel #3 reading, .lookup is already done
+; reading to [PT3FILE_MODULE1_ADDR] address
+ReadFileMany:
 	swab	R4				; file size in words
 	clrb	R4
 	mov	R4, R5				; R5 = file size in words
@@ -175,14 +324,14 @@ ReadFile:
 	cmp	R4, RamTop
 	blo	20$
 	.print	#MsgFileIsBig
-	br	99$
+	jmp	Exit
 	; reading
 20$:	.readw	#fAREA, #3, PT3FILE_MODULE1_ADDR, R5, #0
 	bcc	30$
 	tstb	@#52				; EOF error ?
 	beq	30$
 	.print	#MsgReadError
-	br	99$
+	jmp	Exit
 30$:	.close	#3
 	; now must get real file size (need this for TS detection in player)
 	tstb	-(R4)
@@ -191,8 +340,6 @@ ReadFile:
 	mov	R4, PT3FILE_END_ADDR
 	call	OutHeaderInfo
 	return
-99$:	clr	R0				; perform .hreset before .exit
-	.exit
 
 ; Out vortex|protracker header string, must eliminate consecutive spaces
 OutHeaderInfo:
