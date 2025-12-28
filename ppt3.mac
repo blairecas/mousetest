@@ -127,13 +127,15 @@ GetAllMem:
 
 ; and clear memory to top from AY params (we don't need it though)
 CleaMem:
-	mov	#PARAM_DEVICES_AY1, R0
+	mov	PT3FILE_MODULE1_ADDR, R0
 	mov	RamTop, R3
 	sub	R0, R3
 	clrb	(R0)+
 	sob	R3, .-2
 	return 
 
+; radix-50 word (R1) to ascii bytes (R0)
+; Alex_K code
 R502A:	mov	(R1)+, R5
         clr	R4
         div	#3100, R4
@@ -228,8 +230,9 @@ LoadDirSegment:
 	cmp	CurDirBlk, #6			; is it block #6 or higher?
 	bhis	10$				; yep
 	jmp	Exit				; exit if not (end of segments)
-10$:	; .fetch	#END_OF_PROGRAM, #DkRad50	; do we need that? we are on DK, must be already loaded
-	; bcs	DirFetchErr
+10$:	.fetch	#END_OF_PROGRAM, #DkRad50	; fetch device handler, TODO: we need to fetch only ONCE? I don't know
+	bcs	DirFetchErr
+	mov	R0, PT3FILE_MODULE1_ADDR	; set free mem starting addr
 	.looku	#AreaDir, #4, #DkRad50		; open channel #4 for .dir
 	bcs	DirLookErr
 	.readw	#AreaDir, #4, #DirBuf, #1000, CurDirBlk
@@ -241,9 +244,9 @@ LoadDirSegment:
 	add	#4, R0				; segment #1 is starting from block #6
 	mov	R0, CurDirBlk
 	return
-;DirFetchErr:
-;	.print	#MsgCantFetch
-;	jmp	Exit
+DirFetchErr:
+	.print	#MsgCantFetch
+	jmp	Exit
 DirLookErr:
 	.print	#MsgLookErr
 	jmp	Exit
