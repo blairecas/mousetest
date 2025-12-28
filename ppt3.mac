@@ -9,8 +9,6 @@
 
 Start:	; usage
 	; .print	#MsgUsage		; bad for .com
-
-	; init mem and read file
 	call	GetAllMem			; get all memory (up to USR)
 
 	; test if we are running w/o files
@@ -21,12 +19,7 @@ Start:	; usage
 	inc	PlayFromDir
 10$:	call	NextDirEntry			; next .pt3 entry
 	bcs	Exit				; none
-	; make .lookup then on #3 channel
-	.looku	#AreaDir, #3, #FnameNext
-	bcc	20$
-	.print	#MsgLookErr
-	br	Exit
-20$:	; radix 50 to ascii
+	; radix 50 to ascii
 	mov	#FnameNext+2, R1
 	mov	#MsgFname+4, R0
 	call	R502A
@@ -35,8 +28,12 @@ Start:	; usage
 	call	R502A
 	clrb	(R0)
 	.print	#MsgFname
-	; read and play then
-	call	CleaMem
+	; make .lookup then on #3 channel
+	.looku	#AreaDir, #3, #FnameNext
+	bcc	20$
+	.print	#MsgLookErr
+	br	Exit
+20$:	call	CleaMem
 	mov	FsizeNext, R4
 	call	ReadFileMany
 	call	ManyFiles
@@ -231,8 +228,8 @@ LoadDirSegment:
 	cmp	CurDirBlk, #6			; is it block #6 or higher?
 	bhis	10$				; yep
 	jmp	Exit				; exit if not (end of segments)
-10$:	.fetch	#END_OF_PROGRAM, #DkRad50
-	bcs	DirFetchErr
+10$:	; .fetch	#END_OF_PROGRAM, #DkRad50	; do we need that? we are on DK, must be already loaded
+	; bcs	DirFetchErr
 	.looku	#AreaDir, #4, #DkRad50		; open channel #4 for .dir
 	bcs	DirLookErr
 	.readw	#AreaDir, #4, #DirBuf, #1000, CurDirBlk
@@ -244,9 +241,9 @@ LoadDirSegment:
 	add	#4, R0				; segment #1 is starting from block #6
 	mov	R0, CurDirBlk
 	return
-DirFetchErr:
-	.print	#MsgCantFetch
-	jmp	Exit
+;DirFetchErr:
+;	.print	#MsgCantFetch
+;	jmp	Exit
 DirLookErr:
 	.print	#MsgLookErr
 	jmp	Exit
@@ -265,15 +262,18 @@ NextDirEntry:
 	; check status word
 	cmp	(R0), #4000			; end of segment?
 	beq	10$				; then try read next segment
+	cmp	(R0), #2000			; permanent file?
+	bne	20$				; nope, next entry
 	; check .pt3 extension
 	cmp	6(R0), #^RPT3			; is it .pt3?
 	bne	20$				; nope, next entry
 	; copy filename to FnameNext
-	mov	2(R0), FnameNext+2
-	mov	4(R0), FnameNext+4
-	mov	6(R0), FnameNext+6
+	tst	(R0)+
+	mov	(R0)+, FnameNext+2
+	mov	(R0)+, FnameNext+4
+	mov	(R0)+, FnameNext+6
 	; set file size
-	mov	10(R0), FsizeNext
+	mov	(R0)+, FsizeNext
 	return
 
 
@@ -549,24 +549,11 @@ PPUEnd:
 ; /////////////////////////////////////////////////////////////////////////////
 
 ; Based on:
-; CSI MultiPlayer 3 for CSIDOS by KUVO (��-0011�)
+; CSI MultiPlayer 3 for CSIDOS by KUVO
 ; https://csi.pdp-11.ru/
 
 ; UKNC changes - no legacy AY, no gryphonsound whatsoever, only 'like AZBK' PPU registers
 ; AY registers must be passed respectively to 1st or 2nd AY at REG_OUT:
-
-
-; default macro11.exe (with two passes) can make interesting error if it can't find symbol value at 2nd pass
-; (!) and (!) it will not say this to you, but symbol will be just zeroed
-; so (almost) all symbols with '=' declaration are here above all code just in case
-;
-; beware of
-; mov #C, R0
-; C = B + X
-; B = A + X
-; A = 123 + X
-; X = 1 
-; macro11.exe will not even write about it but R0 CAN BE 0 after all (!) 
 
 	AY_1_PORT_AZBK = 177360
 	AY_2_PORT_AZBK = 177362
