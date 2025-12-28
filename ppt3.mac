@@ -17,7 +17,11 @@ Start:	; usage
 
 	; else need to read directory of DK:
 	inc	PlayFromDir
-10$:	call	NextDirEntry			; next .pt3 entry
+	.fetch	#END_OF_PROGRAM, #DkRad50	; fetch DK: device handler
+	bcs	DirFetchErr
+	mov	R0, PT3FILE_MODULE1_ADDR	; set free mem starting addr
+10$:	; directory playing cycle
+	call	NextDirEntry			; next .pt3 entry
 	bcs	Exit				; none
 	; radix 50 to ascii
 	mov	#FnameNext+2, R1
@@ -40,7 +44,7 @@ Start:	; usage
 	br	10$
 
 OneFile:
-	; one file play from csi
+	; one file play from csigen
 	call	ReadFile			; read file 
 
 ManyFiles:
@@ -57,6 +61,7 @@ ManyFiles:
 	; check for AY presence
 	tst	PpuNoAy
 	beq	10$
+	dec	ErrCode				; well it's error isn't it?
 	.print	#MsgNoAy
 	br	90$
 
@@ -82,8 +87,9 @@ ManyFiles:
 	beq	Exit
 	return
 
-Exit:	; .hreset before .exit
-	clr	R0
+DirFetchErr:
+	.print	#MsgCantFetch
+Exit:	clr	R0				; .hreset before .exit
 	.exit
 
 
@@ -230,10 +236,7 @@ LoadDirSegment:
 	cmp	CurDirBlk, #6			; is it block #6 or higher?
 	bhis	10$				; yep
 	jmp	Exit				; exit if not (end of segments)
-10$:	.fetch	#END_OF_PROGRAM, #DkRad50	; fetch device handler, TODO: we need to fetch only ONCE? I don't know
-	bcs	DirFetchErr
-	mov	R0, PT3FILE_MODULE1_ADDR	; set free mem starting addr
-	.looku	#AreaDir, #4, #DkRad50		; open channel #4 for .dir
+10$:	.looku	#AreaDir, #4, #DkRad50		; open channel #4 for .dir
 	bcs	DirLookErr
 	.readw	#AreaDir, #4, #DirBuf, #1000, CurDirBlk
 	bcs	DirReadErr
@@ -244,9 +247,6 @@ LoadDirSegment:
 	add	#4, R0				; segment #1 is starting from block #6
 	mov	R0, CurDirBlk
 	return
-DirFetchErr:
-	.print	#MsgCantFetch
-	jmp	Exit
 DirLookErr:
 	.print	#MsgLookErr
 	jmp	Exit
