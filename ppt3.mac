@@ -346,7 +346,7 @@ NextDirEntry:
 20$:	sub	#14., DirEntryAddr
 	mov	DirEntryAddr, R0
 	; check if we at start of segment already 
-	cmp	R0, #10.			; first 10. bytes of segment if a header
+	cmp	R0, #DirBuf+10.			; first 10. bytes of segment if a header
 	blo	10$
 	; check status of the file
 	cmp	(R0), #2000			; permanent file?
