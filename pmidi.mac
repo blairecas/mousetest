@@ -1,5 +1,5 @@
 	.title	PMIDI
-	.mcall	.print .ttout .exit .herr .setto .csige .cstat .readw .close
+	.mcall	.print .ttout .herr .setto .csige .cstat .readw .close .fetch .looku
 	.enabl	LC
 	.list	MEB
 
@@ -7,19 +7,67 @@
 	.asect
 	.=1000
 
-Start:	; init mem and read file
+; replace standard .exit macro - now can exit with message
+.macro	.exit	X
+	.if	NB X
+	jsr	R0, ExiPri
+	.word	X
+	.mexit
+	.endc
+	emt	350
+.endm
+
+Start:	; usage
+	; .print	#MsgUsage		; bad for .com
 	call	GetAllMem			; get all memory (up to USR)
+
+	; test if we are running w/o files
+	tstb	@#512				; I dunno what I'm doing here..
+	bne	OneFile
+
+; playing files from DK:
+PlayFromDir =: .+2
+	inc	#000000
+	.fetch	#END_OF_PROGRAM, #DkRad50	; fetch DK: device handler
+	bcc	10$
+	.exit	MsgCantFetch
+10$:	mov	R0, MFileStart			; set free mem starting addr
+	call	MakeSegmentsTable		; make table of a dir segment logical block #'s
+20$:	; directory playing cycle
+	call	NextDirEntry			; next .mid entry (it's reversed), this will go to Exit if none
+	; radix 50 to ascii
+	mov	#FnameNext+2, R1
+	mov	#MsgFname+2, R0
+	call	R502A
+	call	R502A
+	movb	#'., (R0)+
+	call	R502A
+	clrb	(R0)
+	.print	#MsgFname
+	; make .lookup then on #3 channel
+	.looku	#fArea, #3, #FnameNext
+	bcc	30$
+	.exit	MsgLookErr
+30$:	call	CleaMem
+	mov	FsizeNext, R4
+	call	ReadFileMany
+	call	ManyFiles
+	br	20$
+
+; play one file with .csigen
+OneFile:
 	call	ReadFile			; read file
+
+ManyFiles:	
+	; file is readed already here
 	call	MParseHeader			; check midi header
-	bcs	99$
 	call	MInitTracks			; check midi tracks
-	bcs	99$
 
 	; start PPU code
+	clr	PpuKeyRelease
 	mov	#PPUSta, R4			; run PPU code
 	mov	#<PPUEnd-PPUSta>/2, R5
 	call	PPURun
-
 	; wait for PPU code be in a working order
 	tst	PpuComm
 	bne	.-4
@@ -27,6 +75,7 @@ Start:	; init mem and read file
 	; check for GM device presence
 	tst	PpuNoGm
 	beq	10$
+	dec	ErrCode
 	.print	#MsgNoGm
 	br	90$
 
@@ -38,27 +87,40 @@ Start:	; init mem and read file
 	bne	.-4
 	; release PPU memory
 	call	PPRele
+
 	; set error to exit from .com
-	mov	ErrCode, @#52
+ErrCode =: .+2
+	mov	#000000, @#52
 
-99$:	clr	R0				; .hreset before .exit
-	.exit
+	; maybe exit maybe not
+	; if ErrCode is set (AP2 was pressed) - always exit and from .COM either
+	; if we are playing from dir - return then
+	tst	ErrCode
+	bmi	Exit
+	tst	PlayFromDir
+	beq	Exit
+	return
+
+ExiPri:	mov	(R0), R0			; get error message addr
+	emt	351				; .print
+Exit:	clr	R0				; .hreset before .exit
+	emt	350
 
 
-ErrCode:	.word	0
 MsgNoGm:	.asciz	"? no GM device detected on PPU 177366/177370"
+MsgFname:	.asciz	"> xxxxxx.mid"
+MsgSettop:	.asciz	"? can't use all memory (.settop failed)"
+MsgNoMemory:	.asciz	"? can't allocate memory up to 100000"
+MsgCantFetch:	.asciz	"? can't fetch DK device handler"
+MsgLookErr:	.asciz	"? unable to do .lookup"
+MsgCantRead:	.asciz	"? unable to read directory segment"
+MsgPpuNoMem:	.asciz	"? unable to allocate memory in PPU"
 		.even
 
 
 ; //////////////////////////////////////////////////////////////////////////////
-; // Memory and utils
+; // Utils
 ; //////////////////////////////////////////////////////////////////////////////
-
-RamTop:		.word	0			; top addr of available RAM
-
-MsgSettop:	.asciz	"? can't use all memory (.settop failed)"
-MsgNoMemory:	.asciz	"? can't allocate memory up to 100000"
-		.even 
 
 ; code from Alex_K
 GetAllMem:
@@ -67,20 +129,49 @@ GetAllMem:
 	tst	-(R0)				; -2 bytes
 	.setto
 	bcc	10$
-	.print	#MsgSettop
-	.exit
-10$:	mov	R0, RamTop
+	.exit	MsgSettop
+RamTop =: .+2
+10$:	mov	R0, #000000
 	cmp	R0, #100000			; at least top must be 100000 (i want so :)
-	bhis	20$
-	.print	#MsgNoMemory
-	.exit
-20$:	; and clear memory to top from end of program
-	mov	#END_OF_PROGRAM, R0
-	mov	RamTop, R3
-	sub	R0, R3
+	bhis	CleaMem
+	.exit	MsgNoMemory
+; and clear memory to top from midi file start
+CleaMem:
+	mov	MFileStart, R0
+	mov	RamTop, R1
+	sub	R0, R1
 	clrb	(R0)+
-	sob	R3, .-2
+	sob	R1, .-2
 	return 
+
+
+; radix-50 word (R1) to ascii bytes (R0)
+; Alex_K code
+R502A:	mov	(R1)+, R5
+        clr	R4
+        div	#3100, R4
+        call	50$
+        clr	R4
+        div	#50, R4
+        call	50$
+	mov	R5, R4
+        call	50$
+        return
+50$:	cmp	R4, #33
+        beq	4$
+        cmp	R4, #50
+        beq	2$
+        cmp	R4, #34
+        bhis	3$
+        tst	R4
+        beq	1$
+        add	#40, R4
+        add	#11, R4
+2$:	add	#5, R4
+3$:	add	#11, R4
+4$:	add	#11, R4
+	movb	R4, (R0)+
+1$:	return
 
 
 ; compare byte arrays, R4, R5 - addrs, R3 - length, return C=1 - have differences
@@ -138,6 +229,101 @@ GetVarLength:
 
 
 ; //////////////////////////////////////////////////////////////////////////////
+; // Directory routines
+; //////////////////////////////////////////////////////////////////////////////
+
+DkRad50:	.rad50	"DK "
+		.rad50	"   "
+		.rad50	"   "
+		.rad50	"   "
+FnameNext:	.rad50	"DK "
+		.blkw	3
+FsizeNext:	.word	0
+DirBuf:		.blkw	1000
+DirEntryAddr:	.word	DirBuf+10.-14.
+DirBlocksTable:	.blkw	32.			; segments in a directory ranging from 1. to 31.
+DirBlockAddr:	.word	0			; current addr in that table
+
+; scan directory for making segment block table
+MakeSegmentsTable:
+	mov	#DirBlocksTable+2, R3		; our table of segment starting blocks + 2 (first word let be zero for end marker)
+	mov	#6., R4				; dir starting block #6
+	mov	#DirBuf+2, R5			; where to read, temp buffer for now (don't touch word +0, it's a marker)
+	.looku	#fArea, #4, #DkRad50
+	bcs	DirLookErr
+10$:	.readw	#fArea, #4, R5, #2, R4		; reading 2 words header
+	bcs	DirReadErr
+	mov	R4, (R3)+			; put segment starting logical block # into table
+	mov	2(R5), R4			; do we have next segment
+	beq	90$				; nope
+	dec	R4				; else make next segment block# as (segment#-1)*2 + 6
+	asl	R4
+	add	#6, R4
+	br	10$
+90$:	mov	R3, DirBlockAddr
+	.close	#4
+	return
+
+; loading segment of a directory (reverse ordered)
+; set DirEntryAddr to the last file +14. bytes
+LoadDirSegment:
+	; set to prev dir segment block addr
+	sub	#2, DirBlockAddr
+	; check segment addr
+	cmp	@DirBlockAddr, #6		; is it block #6 or higher?
+	bhis	10$				; yep
+	jmp	Exit				; exit if not (reached below start of a directory)
+10$:	.looku	#fArea, #4, #DkRad50		; open channel #4 for .dir
+	bcs	DirLookErr
+	.readw	#fArea, #4, #DirBuf, #1000, @DirBlockAddr
+	bcs	DirReadErr
+	.close	#4
+	; now we need to set DirEntryAddr to the last entry +14. bytes
+	; scan until get #4000 in a status word (each directory segment MUST ends with it, so not checking for overflow, though it's bad)
+	; first check if we start from 'end of segment'
+	cmp	DirBuf+10., #4000
+	beq	LoadDirSegment			; it was an empty segment - get a new one
+	mov	#DirBuf+10.-14., R0		; +10. - skip header 5. words
+	mov	#14., R1			; entry size
+20$:	add	R1, R0				; next entry please
+	cmp	(R0), #4000			; end of segment?
+	bne	20$
+	mov	R0, DirEntryAddr
+	return
+DirLookErr:
+	.exit	MsgLookErr
+DirReadErr:
+	.exit	MsgCantRead
+
+; use reverse order for files
+NextDirEntry:
+	; dir buffer segment loaded?
+	tst	DirBuf
+	bne	20$
+10$:	call	LoadDirSegment			; it will set DirEntryAddr to the last entry of this segment +14. bytes
+20$:	sub	#14., DirEntryAddr
+	mov	DirEntryAddr, R0
+	; check if we at start of segment already 
+	cmp	R0, #DirBuf+10.			; first 10. bytes of segment is a header
+	blo	10$
+	; check status of the file
+	cmp	(R0), #2000			; permanent file?
+	bne	20$				; nope, next entry (previous in this case)
+	; check .mid extension
+	cmp	6(R0), #^RMID			; is it .mid?
+	bne	20$				; nope, next entry
+	; copy filename to FnameNext
+	mov	#FnameNext+2, R1
+	tst	(R0)+
+	mov	(R0)+, (R1)+
+	mov	(R0)+, (R1)+
+	mov	(R0)+, (R1)+
+	; set file size
+	mov	(R0)+, (R1)+
+	return
+
+
+; //////////////////////////////////////////////////////////////////////////////
 ; // File read
 ; //////////////////////////////////////////////////////////////////////////////
 
@@ -147,8 +333,8 @@ fStrBuf:	.blkb	82.
 fDSPAC	= END_OF_PROGRAM			; .csigen device handler buffer
 fDEXT:		.rad50	"MID"			; default inpu extension
 		.word	0,0,0			; default output extensions
-fAREA:		.blkw	5			; parameters buffer for .readw macro
-fCSTAT:		.blkw	6			; channel status info buffer
+fArea:		.blkw	5			; parameters buffer for .readw macro
+fCstat:		.blkw	6			; channel status info buffer
 
 MsgReadError:	.asciz	"? file read error"
 MsgFileIsBig:	.asciz	"? file is too big to fit in memory"
@@ -164,11 +350,14 @@ ReadFile:
 	; print csi string
 	.print	#fStrBuf-2
 	; get file size and check for overflow
-	.cstat	#fAREA, #3, #fCSTAT		; get channel info
+	.cstat	#fArea, #3, #fCstat		; get channel info
 	bcc	10$
-	.print	MsgNoChannel
-	br	99$
-10$:	mov	fCSTAT+4, R4			; file size in blocks
+	.exit	MsgNoChannel
+10$:	mov	fCstat+4, R4			; file size in blocks
+; R4 - file size in blocks
+; channel #3 reading, .lookup is already done
+; reading to [MFileStart] address
+ReadFileMany:
 	swab	R4				; file size in words
 	clrb	R4
 	mov	R4, R5				; R5 = file size in words
@@ -176,15 +365,13 @@ ReadFile:
 	add	MFileStart, R4			; check for overflow
 	cmp	R4, RamTop
 	blo	20$
-	.print	#MsgFileIsBig
-	br	99$
+	.exit	MsgFileIsBig
 	; reading
-20$:	.readw	#fAREA, #3, MFileStart, R5, #0
+20$:	.readw	#fArea, #3, MFileStart, R5, #0
 	bcc	30$
 	tstb	@#52				; EOF error ?
 	beq	30$
-	.print	#MsgReadError
-	br	99$
+	.exit	MsgReadError
 30$:	.close	#3
 	; now must get real file size (need this for TS detection in player)
 	tstb	-(R4)
@@ -192,8 +379,6 @@ ReadFile:
 	inc	R4				; addr AFTER last byte
 	mov	R4, MFileEnd
 	return
-99$:	clr	R0				; perform .hreset before .exit
-	.exit
 
 
 ; //////////////////////////////////////////////////////////////////////////////
@@ -207,13 +392,12 @@ ReadFile:
 
 C_MAX_TRACKS	= 16.
 
-MFileStart:	.word	0
-MFileEnd:	.word	0
+MFileStart:	.word	END_OF_PROGRAM
+MFileEnd:	.word	END_OF_PROGRAM
 MFileType:	.word	0
 MTracksNum:	.word	0
 MCurTracksNum:	.word	0
 MSpeedDiv:	.word	0
-MMksTickDef:	.word	0
 
 MTrChMsgAddr:	.word	0
 MTrChMsg:	.blkw	C_MAX_TRACKS
@@ -232,38 +416,43 @@ MsgBadTrks:	.asciz	"? too many actual MTrk (>16)"
 
 ; get some info from midi file header
 MParseHeader:
+	;
+	; also [re]init some vars here
+	clr	PpuGmData
+	mov	#2000, PpuTimerVal
+	clr	PpuTimerTick
+	mov	#MFileType, R0
+	mov	#MThdTag-MFileType, R1
+	clrb	(R0)+
+	sob	R1, .-2
+	;
 	; test for MThd 6
 	mov	MFileStart, R5
 	mov	#MThdTag, R4
 	mov	#8., R3
 	call	CompareBytes
 	bcc	10$
-	.print	#MsgBadHeader
-	br	90$
+	.exit	MsgBadHeader
 10$:	; midi file type
 	call	GetMsbWord
 	mov	R0, MFileType
 	beq	20$
 	dec	R0
 	beq	20$
-	.print	#MsgBadType
-	br	90$
+	.exit	MsgBadType
 20$:	; tracks number
 	call	GetMsbWord
 	mov	R0, MTracksNum
 	cmp	R0, #1
 	blo	24$
-	cmp	R0, #16.
-	bhi	24$
-	br	30$
-24$:	.print	#MsgBadTrnum
-	br	90$
+	cmp	R0, #C_MAX_TRACKS
+	blos	30$
+24$:	.exit	MsgBadTrnum
 30$:	; speed divisor
 	call	GetMsbWord
 	tst	R0
 	bpl	32$
-	.print	#MsgBadDivisor
-	br	90$
+	.exit	MsgBadDivisor
 32$:	mov	R0, MSpeedDiv
 	beq	40$				; wtf?
 	; 500000. / divisor - tick time in mks for 120bpm
@@ -271,10 +460,7 @@ MParseHeader:
 	mov	#^B0111, R0
 	mov	#^B1110111101000000, R1
 	call	MUpdateTVal
-40$:	; seems all is ok
-	tst	(PC)+
-90$:	sec
-	return
+40$:	return
 
 
 ; helper procedure to update PP timer value
@@ -299,14 +485,12 @@ MInitTracks:
 10$:	inc	R1
 	cmp	R1, #C_MAX_TRACKS
 	blo	14$
-	.print	#MsgBadTrks
-	br	90$
+	.exit	MsgBadTrks
 14$:	mov	#MTrkTag, R4
 	mov	#4., R3
 	call	CompareBytes
 	bcc	20$
-	.print	#MsgBadTrkh
-	br	90$
+	.exit	MsgBadTrkh
 20$:	clr	(R2)+				; initial delay = 0
 	call	GetMsbDword
 	mov	R5, (R2)+			; store track data start addr
@@ -314,9 +498,6 @@ MInitTracks:
 	mov	R5, (R2)+			; store track data end+1 addr
 	cmp	R5, MFileEnd
 	blo	10$
-	; seems all is ok
-	tst	(PC)+
-90$:	sec
 	return
 
 
@@ -453,10 +634,6 @@ PlayMidi:
 ; // CPU -> PPU exchange	
 ; //////////////////////////////////////////////////////////////////////////////
 
-MsgPpuNoMemory:	
-	.asciz	"? unable to allocate memory in PPU"
-	.even
-
 ; PPU message
 ;
 PPmsg:	.word	PPArr				; address of beginning of array
@@ -493,8 +670,7 @@ PPURun:	movb	#1, PPCmd			; 1 - allocate memory
 	call	PPSen
 	tstb	PPArr				; test if allocate success
 	beq	1$				; 0 - OK
-	.print	#MsgPpuNoMemory
-	.exit					; fatal error - out of memory in PPU
+	.exit	MsgPpuNoMem
 1$:	movb	#20, PPCmd			; 20 - write to PPU mem
 	mov 	R4, PPAcp
 	mov	R5, PPLen
@@ -516,6 +692,10 @@ PPUSta:	mtps	#200
 	clr	R0
 	call	@7132(R0)			; stop FD motor
 
+	; usual vaddr regs (!) don't touch R4, R5
+	mov	#177010, R4
+	mov	#177014, R5
+
 	; check GM presence
 	mov	@#4, -(SP)			; save trap int addr
 	mov	PC, R0				; new trap int addr
@@ -531,8 +711,8 @@ PPUSta:	mtps	#200
 	sob	R0, 10$
 20$:	mov	(SP)+, @#4			; restore trap int addr
 	mov	R1, PpuNoGm			; write GM presence into PPU mem
-	mov	#PpuNoGm/2, @#177010		; write GM presence into CPU mem
-	mov	R1, @#177014
+	mov	#PpuNoGm/2, (R4)		; write GM presence into CPU mem
+	mov	R1, (R5)
 
 	; grab keyboard interrupt
 	mov	@#300, Ppu300Int
@@ -555,26 +735,26 @@ PPUSta:	mtps	#200
 	mov	#^B01000111, @#177710		; allow int, start, timer = 16mks, 62500 ticks per second
 						; bits [2 1] 00 - 2, 01 - 4, 10 - 8, 11 - 16
 
-	; signal to CPU that we are working now
-	mov	#PpuComm/2, @#177010
-	clr	@#177014
+	; signal to CPU that we are working now	
+	mov	#PpuComm/2, (R4)
+	clr	(R5)
 
 	mtps	#0
 
 ; get into cycle, await data from CPU and write it to GM
 PPUMain:
-	mov	#PpuComm/2, @#177010
-	mov	@#177014, R0
+	mov	#PpuComm/2, (R4)
+	mov	(R5), R0
 	bmi	PPUExit				; check for command 'PPU code exit'
 	beq	PPUMain				; if no 'send to GM' command - cycle again
 	tst	PpuNoGm
 	bne	90$
 	; write GM data
-	mov	#PpuGmData/2, @#177010
-	mov	@#177014, @#177370
+	mov	#PpuGmData/2, (R4)
+	mov	(R5), @#177370
 90$:	; set command parameter to 0 and cycle again
-	mov	#PpuComm/2, @#177010
-	clr	@#177014
+	mov	#PpuComm/2, (R4)
+	clr	(R5)
 	br	PPUMain
 
 PPUExit:
@@ -586,8 +766,8 @@ PPUExit:
 	mov	Ppu304Int, @#304		; restore timer interrupt
 	mov	Ppu306Int, @#306
 	mov	Ppu300Int, @#300		; restore kbd interrupt
-	mov	#PpuComm/2, @#177010		; signal to CPU that we are finished
-	clr	@#177014
+	mov	#PpuComm/2, (R4)		; signal to CPU that we are finished
+	clr	(R5)
 	mtps	#0				; just in case
 	return
 
@@ -600,26 +780,25 @@ TrapInt:
 
 ; PPU keyboard interrupt (signal to CPU that we released anykey)
 PpuKeyboard:
-	mov	@#177010, -(SP)
+	mov	(R4), -(SP)
 	mov	R0, -(SP)
-	mov	@#177702, R0			; key press or release
-	bit	#^B10000000, R0			; is it released?
-	beq	10$
-	mov	#PpuKeyRelease/2, @#177010
-	mov	R0, @#177014
+	movb	@#177702, R0			; key press or release
+	bpl	10$				; released
+	mov	#PpuKeyRelease/2, (R4)
+	movb	R0, (R5)
 10$:	mov	(SP)+, R0
-	mov	(SP)+, @#177010
+	mov	(SP)+, (R4)
 	rti
 
 
 ; timer interrupt - just decrease timer ticks counter
 PpuTimerInt:
-	mov	@#177010, -(SP)
-	mov	#PpuTimerTick/2, @#177010
-	dec	@#177014
-	mov	#PpuTimerVal/2, @#177010
-	mov	@#177014, @#177712		; set 'new' timer counter (tempo can be changed in song)
-	mov	(SP)+, @#177010
+	mov	(R4), -(SP)
+	mov	#PpuTimerTick/2, (R4)
+	dec	(R5)
+	mov	#PpuTimerVal/2, (R4)
+	mov	(R5), @#177712		; set 'new' timer counter (tempo can be changed in song)
+	mov	(SP)+, (R4)
 	tst	@#177714
 	tst	@#177714
 	rti
