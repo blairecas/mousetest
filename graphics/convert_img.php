@@ -38,20 +38,20 @@
     $f = fopen($fname_tm."r", "w");
     for ($i=0; $i<count($data_img); $i++) fputs($f, chr(($data_img[$i]&0x00FF0000)>>16));
     fclose($f);
-    exec(dirname(__FILE__)."/zx0 -f -q ".$fname_tm."r ".$fname_zx."r");
+    exec("c:/projects/uknc/00_code/scripts/zx0 -f -q ".$fname_tm."r ".$fname_zx."r");
     unlink($fname_tm."r");
 
     // green
     $f = fopen($fname_tm."g", "w");
     for ($i=0; $i<count($data_img); $i++) fputs($f, chr(($data_img[$i]&0x0000FF00)>>8));
     fclose($f);
-    exec(dirname(__FILE__)."/zx0 -f -q ".$fname_tm."g ".$fname_zx."g");
+    exec("c:/projects/uknc/00_code/scripts/zx0 -f -q ".$fname_tm."g ".$fname_zx."g");
     unlink($fname_tm."g");
 
     // blue
     $f = fopen($fname_tm."b", "w");
     for ($i=0; $i<count($data_img); $i++) fputs($f, chr($data_img[$i]&0x000000FF));
     fclose($f);
-    exec(dirname(__FILE__)."/zx0 -f -q ".$fname_tm."b ".$fname_zx."b");
+    exec("c:/projects/uknc/00_code/scripts/zx0 -f -q ".$fname_tm."b ".$fname_zx."b");
     unlink($fname_tm."b");
 ?>

@@ -6,8 +6,8 @@ mouse prototype test
 register on PPU: 177400 [YYYYYYYBXXXXXXXB]
 Y, X - signed 7-bit
 
-2) PPSG.SAV, PPT3.SAV, PT3LPT.SAV
-.psg and .pt3 players
+2) PPT3.SAV, PT3LPT.SAV
+.pt3 players
 registers on PPU: 177360-177364 (3 AY)
 mov regN, @#177360
 movb regData, @#177360

@@ -1,1 +1,1 @@
-start ..\..\ukncbtl\ukncbtl /autostart /disk0:..\mousetest\moutst.dsk /boot1
+start ..\..\ukncbtl\ukncbtl /autostart /disk0:..\mousetest\release\moutst.dsk /boot1

@@ -14,6 +14,7 @@
 	.word	X
 	.mexit
 	.endc
+	clr	R0
 	emt	350
 .endm
 
@@ -60,33 +61,22 @@ OneFile:
 
 ManyFiles:
 	; start PPU code
-	clr	PpuKeyRelease
+	clr	PpuKey
 	mov	#PPUSta, R4			; run PPU code
-	mov	#<PPUEnd-PPUSta>/2, R5
-	call	PPURun
-	; wait for PPU code be in a working order
-	tst	PpuComm
-	bne	.-4
+	mov	#PPUEnd-PPUSta/2, R5
+	call	PPRun
 
 	; check for AY presence
 	tst	PpuNoAy
 	beq	10$
-	dec	ErrCode				; well it's error isn't it?
+	dec	ErrCode				; well it's an error, isn't it?
 	.print	#MsgNoAy
 	br	90$
 
 10$:	call	PlayPt3
 
-90$:	; ask PPU for exit
-	mov	#-1, PpuComm
-	tst	PpuComm
-	bne	.-4
-	; release PPU memory
-	call	PPRele
-
-	; set error to exit from .com
-ErrCode =: .+2
-	mov	#000000, @#52
+90$:	; exit PPU code and release its memory
+	call	PPRel
 
 	; maybe exit maybe not
 	; if ErrCode is set (AP2 was pressed) - always exit and from .COM either
@@ -99,14 +89,17 @@ ErrCode =: .+2
 
 ExiPri:	mov	(R0), R0			; get error message addr
 	emt	351				; .print
-Exit:	clr	R0				; .hreset before .exit
+	dec	ErrCode				; exit with message always set error code to <0
+Exit:	mov	#000000, @#52			; set error value (to exit from .com)
+	clr	R0				; .hreset before .exit
 	emt	350				; .exit
+
+ErrCode =: Exit+2
 
 ;MsgUsage:	.ascii	"PT3 player"<12><15>
 ;		.ascii	"Usage: PPT3 FILE[.PT3]"<12><15>
 ;		.ascii	".. based on KUVO's BK-0010 player code"<12><15>
 ;		.asciz	".. press AP2 to abort .com file if launched from there"<12><15>
-
 MsgNoAy:	.asciz	"? no AY device detected on PPU @#177360"
 MsgFname:	.asciz	<12><15>"> xxxxxx.pt3"
 MsgSettop:	.asciz	"? can't use all memory (.settop failed)"
@@ -175,26 +168,23 @@ R502A:	mov	(R1)+, R5
 	movb	R4, (R0)+
 1$:	return
 
-; // Vsync /////////////////////////////////////////////////////
 
-VSyncInt:
-VSyncCount =: .+2
-	inc	#000000
+; simple vsync interrupt
+VsyInt:	inc	#000000
 	rti
 
-; // Play PT3 from CPU memory //////////////////////////////////
 
 ; play PT3 cycle
 PlayPt3:
 	; save vsync int addr and set a new one
 	mov	@#100, -(SP)
-	mov	#VSyncInt, @#100
+	mov	#VsyInt, @#100
 
 	call	Init
 
-10$:	tst	VSyncCount			; awaiting vsync
-	beq	10$
-	clr	VSyncCount
+10$:	tst	VsyInt+2			; awaiting vsync
+	beq	.-4
+	clr	VsyInt+2
 
 	; call this play routine every frame
 	call	Play
@@ -204,7 +194,7 @@ PlayPt3:
 	bne	99$
 
 	; check for key release in PPU
-	mov	PpuKeyRelease, R0
+	mov	PpuKey, R0
 	beq	10$
 	; test for AP2 release (TODO: UPR-C? but there are two keys..)
 	cmp	R0, #^B10000110
@@ -449,28 +439,29 @@ OutHeaderInfo:
 
 ; PPU message
 ;
-PPmsg:	.word	PPArr	; address of beginning of array
-        .word	177777	; end of transmission
+PPComm:	.word	177777				; our custom command to PPU
+PPmsg:	.word	PPArr				; address of beginning of array
+        .word	177777				; end of transmission
 
 ; PPU data exchange array
 ;
-PPArr:	.byte	0	; return value (0 - OK)
-PPCmd:	.byte	0	; command
-	.word	32	; device type (32 - PPU mem)
-PPApp:	.word	0	; address for PPU
-PPAcp:	.word	0	; address for CPU
-PPLen:	.word	0	; length in words
+PPArr:	.byte	0				; return value (0 - OK)
+PPCmd:	.byte	0				; command
+	.word	32				; device type (32 - PPU mem)
+PPApp:	.word	0				; address for PPU
+PPAcp:	.word	0				; address for CPU / length for allocate
+PPLen:	.word	0				; length in words
 
-; send command to PPU with exch array
+; send command to PPU
 PPSen:	mov	R0, -(SP)
 	mov	R1, -(SP)
-	mov	#PPMsg, R0	; array address
-	mov	#5, R1		; bytes to send+1 (sending from @#PP_MSG)
-	br	1$
-2$:	movb	(R0)+, @#176676
-1$:	tstb	@#176674	; test if we are ready to send
-	bpl	1$		; cycle if >= 0 (not set last bit in byte)
-	sob	R1, 2$
+	mov	#PPMsg, R0			; array address
+	mov	#5, R1				; bytes to send+1 (sending from @#PP_MSG)
+	br	10$
+20$:	movb	(R0)+, @#176676
+10$:	tstb	@#176674			; test if we are ready to send
+	bpl	10$				; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 20$
 	mov	(SP)+, R1
 	mov	(SP)+, R0
 	return
@@ -478,21 +469,28 @@ PPSen:	mov	R0, -(SP)
 ; send and start PPU code
 ; R4 - start addr in CPU
 ; R5 - length / 2
-PPURun:	movb	#1, PPCmd	; 1 - allocate memory
+PPRun:	mov	PC, PPComm			; set 'command' as not zero
+	movb	#1, PPCmd			; 1 - allocate memory
 	mov	R5, PPAcp
 	call	PPSen
-	tstb	PPArr		; test if allocate success
-	beq	1$		; 0 - OK
+	tstb	PPArr				; test if allocate success
+	beq	10$				; 0 - OK
 	.exit	MsgPpuNoMem
-1$:	movb	#20, PPCmd	; 20 - write to PPU mem
+10$:	movb	#20, PPCmd			; 20 - write to PPU mem
 	mov 	R4, PPAcp
 	mov	R5, PPLen
 	call	PPSen
-	movb	#30, PPCmd	; 30 - run
-	br	PPSen
+	movb	#30, PPCmd			; 30 - run
+	call	PPSen
+	tst	PPComm				; wait for PPU code up and running
+	bne	.-4
+	return
 
 ; release PPU memory
-PPRele:	movb	#2, PPCmd	; 2 - release memory
+PPRel:	mov	#177777, PPComm			; ask PPU to exit 
+	tst	PPComm				; wait for ackn
+	bne	.-4
+	movb	#2, PPCmd			; 2 - release memory
 	br	PPSen
 
 
@@ -523,20 +521,20 @@ PPUSta:
 	mov	R1, (R5)
 
 	; grab keyboard interrupt
-	mov	@#300, Ppu300Int
+	mov	@#300, -(SP)
 	mov	PC, R0
-	add	#PpuKeyboard-., R0
+	add	#PpuKeyInt-., R0
 	mov	R0, @#300
 
 	; signal to CPU that we are working now
-	mov	#PpuComm/2, (R4)
+	mov	#PPComm/2, (R4)
 	clr	(R5)
 
 	mtps	#0
 
 ; get into cycle, await data from CPU and write it to AY
 PPUMain:
-	mov	#PpuComm/2, (R4)
+	mov	#PPComm/2, (R4)
 	mov	(R5), R0
 	bmi	PPUExit			; check for command 'PPU code exit'
 	beq	PPUMain			; if no 'update AY regs' command - cycle again
@@ -585,13 +583,13 @@ PPUMain:
 	mtps	#0			; ok interrupts go on
 
 90$:	; set command parameter to 0 and cycle again
-	mov	#PpuComm/2, (R4)
+	mov	#PPComm/2, (R4)
 	clr	(R5)
 	br	PPUMain
 
 PPUExit:
-	mov	Ppu300Int, @#300	; restore kbd interrupt
-	mov	#PpuComm/2, (R4)	; signal to CPU that we are finished
+	mov	(SP)+, @#300		; restore kbd interrupt
+	mov	#PPComm/2, (R4)		; signal to CPU that we are finished
 	clr	(R5)
 	mtps	#0			; just in case
 	return
@@ -602,22 +600,19 @@ TrapInt:
 	rti
 
 ; PPU keyboard interrupt (signal to CPU that we released anykey)
-PpuKeyboard:
+PpuKeyInt:
 	mov	(R4), -(SP)
 	mov	R0, -(SP)
 	movb	@#177702, R0		; key press or release
 	bpl	10$			; pressed
-	mov	#PpuKeyRelease/2, (R4)
+	mov	#PpuKey/2, (R4)
 	movb	R0, (R5)
 10$:	mov	(SP)+, R0
 	mov	(SP)+, (R4)
 	rti
 
 PpuNoAy:	.word	0		; =1 -> no AY device
-PpuComm:	.word	177777		; =0 -> PPU code is working now, =1 - ask to write AY regs, <0 - ask for exit
-
-Ppu300Int:	.word	0		; for saving keyboard int addr
-PpuKeyRelease:	.word	0		; =1 -> key was released
+PpuKey:		.word	0		; =1 -> key was released
 
 PPUEnd:
 
@@ -1139,8 +1134,8 @@ REG_OUT:
 	mov	(R4)+, (R5)+
 	sob	R3, .-2
 	; write regs to AY on PPU bus
-	mov	#1, PpuComm				; command to PPU - 'copy registers'
-	tst	PpuComm					; awaiting execution
+	mov	#1, PPComm				; command to PPU - 'copy registers'
+	tst	PPComm					; awaiting execution
 	bne	.-4
 	return
 
