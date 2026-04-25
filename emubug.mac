@@ -1,0 +1,145 @@
+	.title	PMIDI
+	.enabl	LC
+
+	.asect
+	.=1000
+
+Start:	mov	@#4, -(SP)
+	mov	@#6, -(SP)
+	mov	PC, R0
+	add	#TraInt-., R0
+	mov	R0, @#4
+	mov	#600, @#6
+	mov	#77, @#177366
+	mov	#77, @#177366
+	mov	#77, @#177366
+	mov	#77, @#177366
+	mov	#77, @#177366
+	mov	#77, @#177366
+	; are we in a halt mode?
+	clz
+	cmp	@#177366, #77
+	bne	10$
+	mov	#MsgEx2, 20$+2
+10$:	mov	(SP)+, @#6
+	mov	(SP)+, @#4
+20$:	mov	#MsgEx1, R0
+	emt	351
+	emt	350
+
+MsgEx1:	.asciz	"NO HALT"
+MsgEx2:	.asciz	"IS HALT"
+
+	; run PPU code
+	mov	#PPUSta, R4
+	mov	#PPUEnd-PPUSta/2, R5
+	call	PPRun
+
+	; wait a bit
+	clr	R0
+	sob	R0, .
+
+	; exit ppu code, free it's memory
+	call	PPRel
+	emt	350
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // CPU -> PPU exchange	
+; //////////////////////////////////////////////////////////////////////////////
+
+; PPU message
+;
+PPComm:	.word	177777				; our custom command to PPU
+PPmsg:	.word	PPArr				; address of beginning of array
+        .word	177777				; end of transmission
+
+; PPU data exchange array
+;
+PPArr:	.byte	0				; return value (0 - OK)
+PPCmd:	.byte	0				; command
+	.word	32				; device type (32 - PPU mem)
+PPApp:	.word	0				; address for PPU
+PPAcp:	.word	0				; address for CPU / length for allocate
+PPLen:	.word	0				; length in words
+
+; send command to PPU
+PPSen:	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	#PPMsg, R0			; array address
+	mov	#5, R1				; bytes to send+1 (sending from @#PP_MSG)
+	br	10$
+20$:	movb	(R0)+, @#176676
+10$:	tstb	@#176674			; test if we are ready to send
+	bpl	10$				; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 20$
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	return
+
+; send and start PPU code
+; R4 - start addr in CPU
+; R5 - length / 2
+PPRun:	mov	PC, PPComm			; set 'command' as not zero
+	movb	#1, PPCmd			; 1 - allocate memory
+	mov	R5, PPAcp
+	call	PPSen
+	movb	#20, PPCmd			; 20 - write to PPU mem
+	mov 	R4, PPAcp
+	mov	R5, PPLen
+	call	PPSen
+	movb	#30, PPCmd			; 30 - run
+	call	PPSen
+	tst	PPComm				; wait for PPU code up and running
+	bne	.-4
+	return
+
+; release PPU memory
+PPRel:	mov	#177777, PPComm			; ask PPU to exit 
+	tst	PPComm				; wait for ackn
+	bne	.-4
+	movb	#2, PPCmd			; 2 - release memory
+	br	PPSen
+
+
+; //////////////////////////////////////////////////////////////////////////////	
+; // PPU
+; //////////////////////////////////////////////////////////////////////////////
+
+PPUSta:	mov	#177010, R4
+	mov	#177014, R5
+
+	mov	@#4, -(SP)
+	mov	@#6, -(SP)
+	mov	PC, R0
+	add	#TraInt-., R0
+	mov	R0, @#4
+	mov	#600, @#6
+	mov	#77, @#177366
+	mov	#77, @#177366
+	mov	#77, @#177366
+	mov	#77, @#177366
+	mov	#77, @#177366
+	mov	#77, @#177366
+	mov	(SP)+, @#6
+	mov	(SP)+, @#4
+
+	; signal to CPU that we are OK
+	mov	#PPComm/2, (R4)
+	clr	(R5)
+
+PPUMai:	; wait for exit signal from CPU
+	mov	#PPComm/2, (R4)
+	mov	(R5), R0
+	bpl	PPUMai
+
+	; eckn and exit
+	clr	(R5)
+	return
+
+TraInt:	br	.
+	rti
+
+PPUEnd:
+
+	.end	Start

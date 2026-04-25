@@ -176,37 +176,28 @@ VsyInt:	inc	#000000
 
 ; play PT3 cycle
 PlayPt3:
-	; save vsync int addr and set a new one
 	mov	@#100, -(SP)
 	mov	#VsyInt, @#100
-
 	call	Init
 
-10$:	tst	VsyInt+2			; awaiting vsync
-	beq	.-4
-	clr	VsyInt+2
-
-	; call this play routine every frame
-	call	Play
-
-	; end of file?
-	tst	END_OF_PT3FILE
-	bne	99$
-
-	; check for key release in PPU
-	mov	PpuKey, R0
+10$:	; wait for vsync
+	mov	PpuKey, R0			; checking key inside waiting for vsync, yes
+	bne	90$
+	tst	VsyInt+2			; awaiting vsync
 	beq	10$
-	; test for AP2 release (TODO: UPR-C? but there are two keys..)
-	cmp	R0, #^B10000110
-	bne	99$	
-	; must set error (well, I will use -1 :)
-	dec	ErrCode
+	clr	VsyInt+2
+	; play every frame
+	call	Play
+	; check for end of file
+	tst	END_OF_PT3FILE
+	beq	10$
 
-99$:	; mute two (! UKNC has three !) AY devices
-	call	Mute
-	; restore vsync int and return
+90$:	cmp	R0, #^B10000110			; test for AP2 release
+	bne	99$	
+	dec	ErrCode
+99$:	; restore vsync int, mute and return
 	mov	(SP)+, @#100
-	return
+	jmp	Mute
 
 
 ; //////////////////////////////////////////////////////////////////////////////
@@ -529,7 +520,6 @@ PPUSta:
 	; signal to CPU that we are working now
 	mov	#PPComm/2, (R4)
 	clr	(R5)
-
 	mtps	#0
 
 ; get into cycle, await data from CPU and write it to AY
@@ -547,8 +537,6 @@ PPUMain:
 	mov	#PpuAyRegisters/2+7, (R4)
 	mov	(R5), R2		; R2 = AY port addr
 	beq	90$			; no port - exiting
-
-	mtps	#200			; no way you interrupts!
 
 	; cycle AY regs
 	; 13 - Envelope shape/cycle
@@ -580,8 +568,6 @@ PPUMain:
 	dec	R1
 	sob	R3, 20$
 
-	mtps	#0			; ok interrupts go on
-
 90$:	; set command parameter to 0 and cycle again
 	mov	#PPComm/2, (R4)
 	clr	(R5)
@@ -591,7 +577,6 @@ PPUExit:
 	mov	(SP)+, @#300		; restore kbd interrupt
 	mov	#PPComm/2, (R4)		; signal to CPU that we are finished
 	clr	(R5)
-	mtps	#0			; just in case
 	return
 
 ; PPU trap interrupt (just increase R1)

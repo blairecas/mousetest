@@ -332,9 +332,29 @@ fCstat:		.blkw	6			; channel status info buffer
 MsgReadError:	.asciz	"? file read error"
 MsgFileIsBig:	.asciz	"? file is too big to fit in memory"
 MsgNoChannel:	.asciz	"? unable to open file channel #3"
+MsgGot350:	.asciz	"EMT 350"
 		.even
 
+EmtInt:	mov	R0, #000000
+	mov	(SP), R0
+	cmp	-2(R0), #104350
+	bne	10$
+	; emt 350
+	mov	EmtOrigInt, @#30
+	mov	#1000, SP
+	mtps	#0
+	.print	#MsgGot350
+	jmp	Exit
+10$:	mov	EmtInt+2, R0
+	jmp	@EmtOrigInt
+	
+
 ReadFile:
+
+EmtOrigInt =: .+4
+	mov	@#30, #000000
+	mov	#EmtInt, @#30
+
 	; open file
 	mov	SP, R5				; save SP before .csigen (will change it)
 	.csige	#fDSPAC, #fDEXT, , #fStrBuf	; load handler, open file channel from user input
@@ -698,19 +718,22 @@ PPUSta:	mtps	#200
 	mov	#177014, R5
 
 	; check GM presence
-	mov	@#4, -(SP)			; save trap int addr
+	mov	@#4, -(SP)
+;	mov	@#6, -(SP)
 	mov	PC, R0				; new trap int addr
 	add	#TrapInt-., R0
 	mov	R0, @#4				; set it
-	mov	#1000, R0
+;	mov	#200, @#6			; (!) we will need PSW=200 on trap int
+;	mov	#1000, R0
 10$:	clr	R1				; check for GM
 	mov	#77, @#177366			; set midi control
-	nop
-	nop					; give it some time to .. ? to what? 
-	tst	R1
-	beq	20$
-	sob	R0, 10$
-20$:	mov	(SP)+, @#4			; restore trap int addr
+;	nop
+;	nop					; give it some time to .. ? to what? 
+;	tst	R1
+;	beq	20$
+;	sob	R0, 10$
+;20$:	mov	(SP)+, @#6
+	mov	(SP)+, @#4
 	mov	R1, PpuNoGm			; write GM presence into PPU mem
 	mov	#PpuNoGm/2, (R4)		; write GM presence into CPU mem
 	mov	R1, (R5)
