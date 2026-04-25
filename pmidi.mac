@@ -335,26 +335,26 @@ MsgNoChannel:	.asciz	"? unable to open file channel #3"
 MsgGot350:	.asciz	"EMT 350"
 		.even
 
-EmtInt:	mov	R0, #000000
-	mov	(SP), R0
-	cmp	-2(R0), #104350
-	bne	10$
-	; emt 350
-	mov	EmtOrigInt, @#30
-	mov	#1000, SP
-	mtps	#0
-	.print	#MsgGot350
-	jmp	Exit
-10$:	mov	EmtInt+2, R0
-	jmp	@EmtOrigInt
+;EmtInt:	mov	R0, #000000
+;	mov	(SP), R0
+;	cmp	-2(R0), #104350
+;	bne	10$
+;	; emt 350
+;	mov	EmtOrigInt, @#30
+;	mov	#1000, SP
+;	mtps	#0
+;	.print	#MsgGot350
+;	jmp	Exit
+;10$:	mov	EmtInt+2, R0
+;	jmp	@EmtOrigInt
 	
 
 ReadFile:
-
-EmtOrigInt =: .+4
-	mov	@#30, #000000
-	mov	#EmtInt, @#30
-
+;
+;EmtOrigInt =: .+4
+;	mov	@#30, #000000
+;	mov	#EmtInt, @#30
+;
 	; open file
 	mov	SP, R5				; save SP before .csigen (will change it)
 	.csige	#fDSPAC, #fDEXT, , #fStrBuf	; load handler, open file channel from user input

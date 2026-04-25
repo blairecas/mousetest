@@ -490,8 +490,7 @@ PPRel:	mov	#177777, PPComm			; ask PPU to exit
 ; //////////////////////////////////////////////////////////////////////////////
 
 ; PPU starting addr
-PPUSta:
-	mtps	#200
+PPUSta:	mtps	#200
 	clr	R0
 	call	@7132(R0)		; stop FD motor
 
