@@ -732,7 +732,7 @@ PPUSta:	mtps	#200
 ;	tst	R1
 ;	beq	20$
 ;	sob	R0, 10$
-;20$:	mov	(SP)+, @#6
+;20$:	; mov	(SP)+, @#6
 	mov	(SP)+, @#4
 	mov	R1, PpuNoGm			; write GM presence into PPU mem
 	mov	#PpuNoGm/2, (R4)		; write GM presence into CPU mem
